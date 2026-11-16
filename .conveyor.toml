@@ -13,7 +13,7 @@ steps = [{ anvil = "format --check" }]
 name    = "lint"
 image   = "ossiriand.arda:8080/forge/ci/rust-builder:latest"
 timeout = 1800
-steps   = [{ anvil = "lint --all-targets --deny-warnings" }]
+steps   = [{ run = "bash scripts/ci-placeholders.sh" }, { anvil = "lint --all-targets --deny-warnings" }]
 
 [[stage.job]]
 name    = "deps"
@@ -44,7 +44,7 @@ needs = ["build"]
 name    = "unit"
 image   = "ossiriand.arda:8080/forge/ci/rust-builder:latest"
 timeout = 1800
-steps   = [{ anvil = "test --all" }]
+steps   = [{ run = "bash scripts/ci-placeholders.sh" }, { anvil = "test --all" }]
 
 # ---------------------------------------------------------------- release (by hand)
 # Never started by a push or a pull request: run by naming it,
