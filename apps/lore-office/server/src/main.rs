@@ -21,11 +21,11 @@ use std::sync::Arc;
 #[cfg(feature = "embed")]
 fn modules() -> Modules {
     Modules {
-        launcher: include_bytes!("../../lore-launcher/dist/app.wasm").to_vec(),
-        docs: include_bytes!("../../lore-docs/dist/app.wasm").to_vec(),
-        sheets: include_bytes!("../../lore-sheets/dist/app.wasm").to_vec(),
-        notes: include_bytes!("../../lore-notes/dist/app.wasm").to_vec(),
-        pdf: include_bytes!("../../lore-pdf/dist/app.wasm").to_vec(),
+        launcher: include_bytes!("../../../lore-launcher/dist/app.wasm").to_vec(),
+        docs: include_bytes!("../../../lore-docs/dist/app.wasm").to_vec(),
+        sheets: include_bytes!("../../../lore-sheets/dist/app.wasm").to_vec(),
+        notes: include_bytes!("../../../lore-notes/dist/app.wasm").to_vec(),
+        pdf: include_bytes!("../../../lore-pdf/dist/app.wasm").to_vec(),
     }
 }
 
