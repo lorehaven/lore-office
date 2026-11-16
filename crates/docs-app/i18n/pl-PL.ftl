@@ -1,5 +1,6 @@
 language_label = Język
 theme_toggle = Zmień motyw
+paper_toggle = Pokaż stronę w jasnych kolorach
 theme_mode = Tryb
 theme_light = Jasny
 theme_dark = Ciemny

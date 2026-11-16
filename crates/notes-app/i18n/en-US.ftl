@@ -1,5 +1,6 @@
 language_label = Language
 theme_toggle = Toggle theme
+paper_toggle = Show the page in light colours
 theme_mode = Mode
 theme_light = Light
 theme_dark = Dark

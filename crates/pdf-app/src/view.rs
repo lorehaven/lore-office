@@ -321,9 +321,14 @@ fn ribbon(state: &PdfState) -> Element {
         ],
     );
     let name = state.name.clone();
-    office_ui::ribbon(
+    office_ui::ribbon_named(
         "lore-pdf",
-        name,
+        name.clone(),
+        Some({
+            let n = name;
+            std::rc::Rc::new(move |typed: &str| office_ui::rename_to(&n, typed))
+                as std::rc::Rc<dyn Fn(&str)>
+        }),
         state.status.clone(),
         "Ribbon",
         file,

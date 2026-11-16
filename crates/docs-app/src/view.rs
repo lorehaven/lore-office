@@ -564,9 +564,13 @@ fn ribbon(state: &DocState) -> Element {
                 .into_view(),
         ],
     );
-    office_ui::ribbon(
+    office_ui::ribbon_named(
         "lore-docs",
-        name,
+        name.clone(),
+        Some({
+            let n = name;
+            Rc::new(move |typed: &str| office_ui::rename_to(&n, typed)) as Rc<dyn Fn(&str)>
+        }),
         status,
         "Ribbon",
         file,
@@ -984,6 +988,7 @@ fn extras(state: &DocState) -> Element {
             &current,
             std::rc::Rc::new(move |code| pick.set_language(code)),
         ))
+        .child(office_theme::paper_button(&text("paper_toggle")))
         .child(office_theme::theme_menu(&office_theme::ThemeLabels {
             toggle: text("theme_toggle"),
             mode: text("theme_mode"),

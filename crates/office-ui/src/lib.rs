@@ -99,6 +99,41 @@ fn home_link() -> View {
         })
 }
 
+/// The name a document gets from what a person typed in its place.
+///
+/// It is trimmed, without characters a file name cannot have, and with the old extension when none was typed (`Report` over
+/// `Untitled.docx` is `Report.docx`). Nothing typed keeps the old name.
+#[must_use]
+pub fn renamed(old: &str, typed: &str) -> String {
+    let cleaned: String = typed
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .map(|c| if "/\\:*?\"<>|".contains(c) { '_' } else { c })
+        .take(200)
+        .collect();
+    let cleaned = cleaned.trim().to_string();
+    if cleaned.is_empty() || cleaned == "." {
+        return old.to_string();
+    }
+    let extension = old
+        .rsplit_once('.')
+        .map(|(_, e)| e)
+        .filter(|e| !e.is_empty() && e.len() <= 5);
+    match (cleaned.contains('.'), extension) {
+        (false, Some(e)) => format!("{cleaned}.{e}"),
+        _ => cleaned,
+    }
+}
+
+/// Rename a document from what was typed: the new name goes in `name` (set twice, so a field showing what was typed shows
+/// the name that was kept even when it did not change).
+pub fn rename_to(name: &Signal<String>, typed: &str) {
+    let new = renamed(&name.get_untracked(), typed);
+    name.set(String::new());
+    name.set(new);
+}
+
 /// The ribbon, in two lines.
 ///
 /// The top line holds the app name, `lead` (the File menu), one tab for each of `tabs`, then the document name and the last
@@ -109,6 +144,25 @@ fn home_link() -> View {
 pub fn ribbon(
     app: &'static str,
     document: Signal<String>,
+    status: Signal<String>,
+    label: &str,
+    lead: Element,
+    extras: Element,
+    tabs: Vec<(&'static str, Vec<Element>)>,
+) -> Element {
+    ribbon_named(app, document, None, status, label, lead, extras, tabs)
+}
+
+/// What is done with a name typed in the ribbon.
+pub type Rename = Rc<dyn Fn(&str)>;
+
+/// As [`ribbon`], and when `rename` is given the document's name is a field: what is typed there is handed to it.
+#[must_use]
+#[allow(clippy::too_many_arguments)]
+pub fn ribbon_named(
+    app: &'static str,
+    document: Signal<String>,
+    rename: Option<Rename>,
     status: Signal<String>,
     label: &str,
     lead: Element,
@@ -150,7 +204,24 @@ pub fn ribbon(
         );
     }
     bar = bar
-        .child(span().class("file-name").text_fn(move || document.get()))
+        .child(match rename {
+            Some(rename) => {
+                let shown = document;
+                input()
+                    .attr("type", "text")
+                    .class("file-name file-name-input")
+                    .attr("title", t("Rename the document"))
+                    .attr("aria-label", t("Document name"))
+                    .attr("spellcheck", "false")
+                    .attr_fn("value", move || shown.get())
+                    .on_change(move |typed| rename(typed))
+                    .into_view()
+            }
+            None => span()
+                .class("file-name")
+                .text_fn(move || document.get())
+                .into_view(),
+        })
         .child(
             span()
                 .class("status")

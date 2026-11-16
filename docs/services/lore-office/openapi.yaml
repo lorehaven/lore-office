@@ -1,0 +1,331 @@
+openapi: 3.1.0
+info:
+  title: Lore Office cloud API
+  version: 0.1.1
+  description: >
+    The cloud of the Lore Office suite: each signed-in person's documents (docs, sheets, notes, pdf) and share links.
+    Served by lore-office-server under its base path (`/lore-office` in the estate). Calls act on the signed-in person's own
+    documents; only `/api/s/{token}` is open, to whoever holds the token.
+servers:
+  - url: "{base}"
+    variables:
+      base:
+        default: /lore-office
+tags:
+  - name: status
+  - name: documents
+  - name: links
+  - name: service
+paths:
+  /api/status:
+    get:
+      tags: [status]
+      summary: Who is signed in and where signing in starts
+      security: []
+      responses:
+        "200":
+          description: The person (null when nobody is accepted) and the sign-in address.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, login]
+                properties:
+                  user: { type: [string, "null"] }
+                  login: { type: string }
+              example: { user: ada, login: /lore-office/ui/login }
+  /api/usage:
+    get:
+      tags: [status]
+      summary: Space used and allowed
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: Bytes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Usage" }
+        "401": { $ref: "#/components/responses/SignIn" }
+  /api/docs:
+    get:
+      tags: [documents]
+      summary: List the person's documents, newest first
+      security: [{ session: [] }]
+      parameters:
+        - name: kind
+          in: query
+          description: Only documents of this app; empty or absent lists all.
+          schema: { $ref: "#/components/schemas/Kind" }
+      responses:
+        "200":
+          description: The documents.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DocMeta" }
+        "401": { $ref: "#/components/responses/SignIn" }
+    put:
+      tags: [documents]
+      summary: Make a document from the body
+      security: [{ session: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Name" }
+        - { $ref: "#/components/parameters/KindRequired" }
+      requestBody: { $ref: "#/components/requestBodies/File" }
+      responses:
+        "200":
+          description: The new document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocMeta" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "507": { $ref: "#/components/responses/NoRoom" }
+  /api/docs/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    get:
+      tags: [documents]
+      summary: The bytes of a document
+      security: [{ session: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/File" }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [documents]
+      summary: Replace a document
+      security: [{ session: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Name" }
+        - { $ref: "#/components/parameters/KindRequired" }
+        - { $ref: "#/components/parameters/IfMatch" }
+      requestBody: { $ref: "#/components/requestBodies/File" }
+      responses:
+        "200":
+          description: The document as it is now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocMeta" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "507": { $ref: "#/components/responses/NoRoom" }
+    delete:
+      tags: [documents]
+      summary: Delete a document and its links
+      security: [{ session: [] }]
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/docs/{id}/share:
+    post:
+      tags: [links]
+      summary: Make a link to a document
+      security: [{ session: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - name: rights
+          in: query
+          schema: { type: string, enum: [view, edit], default: view }
+        - name: days
+          in: query
+          description: A positive number of days after which the link ends; otherwise it never does.
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The link.
+          headers:
+            x-link:
+              description: The address that opens it, `<scheme>://<host><base>/<app>?share=<token>`.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Share" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/shares:
+    get:
+      tags: [links]
+      summary: The person's links, newest first
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: The links.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Share" }
+        "401": { $ref: "#/components/responses/SignIn" }
+  /api/shares/{token}:
+    delete:
+      tags: [links]
+      summary: Withdraw a link
+      security: [{ session: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Token" }
+      responses:
+        "204": { description: Withdrawn. }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/s/{token}:
+    parameters:
+      - { $ref: "#/components/parameters/Token" }
+    get:
+      tags: [links]
+      summary: Open the document of a link
+      security: []
+      responses:
+        "200":
+          description: The bytes; `x-rights` says what the link allows.
+          headers:
+            x-rights: { schema: { type: string, enum: [view, edit] } }
+            x-name: { schema: { type: string } }
+            x-kind: { schema: { $ref: "#/components/schemas/Kind" } }
+            x-etag: { schema: { type: string } }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [links]
+      summary: Save through an edit link
+      security: []
+      parameters:
+        - { $ref: "#/components/parameters/IfMatch" }
+      requestBody: { $ref: "#/components/requestBodies/File" }
+      responses:
+        "200":
+          description: The document as it is now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocMeta" }
+        "403":
+          description: The link only lets people view.
+          content:
+            text/plain:
+              example: this link only lets you view
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "507": { $ref: "#/components/responses/NoRoom" }
+  /health:
+    get:
+      tags: [service]
+      summary: The service is up (also `/health/{anything}`)
+      security: []
+      responses:
+        "200":
+          description: ok
+          content:
+            text/plain:
+              example: ok
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: forge_session
+      description: Gatehouse's access token, set by the sign-in routes (the name follows `AUTH_COOKIE_NAME`).
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      description: A document's id (hexadecimal).
+      schema: { type: string, pattern: "^[0-9a-f]{1,64}$" }
+    Token:
+      name: token
+      in: path
+      required: true
+      description: A link's token (64 hexadecimal characters).
+      schema: { type: string, pattern: "^[0-9a-f]{64}$" }
+    Name:
+      name: name
+      in: query
+      required: true
+      description: The document's name (not empty, at most 200 bytes).
+      schema: { type: string }
+    KindRequired:
+      name: kind
+      in: query
+      required: true
+      schema: { $ref: "#/components/schemas/Kind" }
+    IfMatch:
+      name: If-Match
+      in: header
+      description: The etag the save began from; a different current etag answers 409.
+      schema: { type: string }
+  requestBodies:
+    File:
+      required: true
+      description: The file, at most `MAX_UPLOAD_BYTES`.
+      content:
+        application/octet-stream:
+          schema: { type: string, format: binary }
+  responses:
+    File:
+      description: The bytes.
+      headers:
+        x-name: { description: The name, percent-encoded., schema: { type: string } }
+        x-kind: { schema: { $ref: "#/components/schemas/Kind" } }
+        x-etag: { schema: { type: string } }
+        cache-control: { schema: { type: string, const: no-store } }
+      content:
+        application/octet-stream:
+          schema: { type: string, format: binary }
+    SignIn:
+      description: Not signed in, or not accepted. Body `sign in first`.
+      headers:
+        www-authenticate: { schema: { type: string, const: Bearer } }
+    BadRequest:
+      description: Something missing or invalid (`name and kind are needed`, `rights are view or edit`, ...).
+    NotFound:
+      description: No such document, link or call.
+    Conflict:
+      description: The document changed since the etag the save began from.
+      headers:
+        x-etag: { description: The current etag., schema: { type: string } }
+    TooLarge:
+      description: The body is over `MAX_UPLOAD_BYTES`.
+    NoRoom:
+      description: The person's quota is used up.
+  schemas:
+    Kind:
+      type: string
+      enum: [docs, sheets, notes, pdf]
+    DocMeta:
+      type: object
+      required: [id, name, kind, size, modified, etag]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/Kind" }
+        size: { type: integer, format: int64, description: Bytes. }
+        modified: { type: integer, format: int64, description: Seconds since 1970. }
+        etag: { type: string }
+    Share:
+      type: object
+      required: [token, owner, doc, name, kind, rights, created, expires]
+      properties:
+        token: { type: string }
+        owner: { type: string }
+        doc: { type: string }
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/Kind" }
+        rights: { type: string, enum: [View, Edit] }
+        created: { type: integer, format: int64 }
+        expires: { type: [integer, "null"], format: int64 }
+    Usage:
+      type: object
+      required: [used, quota]
+      properties:
+        used: { type: integer, format: int64 }
+        quota: { type: integer, format: int64 }

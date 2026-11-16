@@ -128,3 +128,12 @@ fn the_style_sheet_uses_the_theme_variables() {
 }
 
 quench_test::main!();
+
+#[quench_test::test]
+fn a_typed_name_keeps_the_extension_and_has_no_path_characters() {
+    assert_eq!(office_ui::renamed("Untitled.docx", "Report"), "Report.docx");
+    assert_eq!(office_ui::renamed("Untitled.docx", "  Plan.md "), "Plan.md");
+    assert_eq!(office_ui::renamed("Untitled.docx", ""), "Untitled.docx");
+    assert_eq!(office_ui::renamed("Untitled.docx", "a/b:c"), "a_b_c.docx");
+    assert_eq!(office_ui::renamed("Untitled", "Notes"), "Notes");
+}

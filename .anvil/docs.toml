@@ -1,0 +1,13 @@
+# The book of lore-office (docs/): `anvil docs check`, `anvil docs build`, `anvil docs release`.
+#
+# The routes of the service are matched by hand in `apps/lore-office/server/src` (not declared with route attributes), so
+# the OpenAPI check against the source is not used: docs/services/lore-office/openapi.yaml is kept in step by hand.
+[docs]
+out = "target/docs"
+# The warehouse files storage the books are kept in: <book>/<version>/ and <book>/latest.json (the same as forge's book).
+storage = "docs"
+warehouse_url = "https://ennor.ddns.net/warehouse"
+
+[docs.books.lore-office]
+dir = "docs"
+title = "Lore Office"

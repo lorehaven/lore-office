@@ -1,5 +1,5 @@
-// office-theme: keeps html[data-theme] and html[data-palette] in step with the browser's storage (keys q:theme and
-// q:palette), and answers clicks on the theme menu. With no theme stored the system's scheme decides.
+// office-theme: keeps html[data-theme] and html[data-palette] in step with the browser's storage (keys q:theme, q:palette and
+// q:paper), and answers clicks on the theme menu. With no theme stored the system's scheme decides.
 (function () {
   var root = document.documentElement;
   var PALETTES = ['blue', 'green', 'teal', 'purple', 'rose', 'orange'];
@@ -12,6 +12,10 @@
     if (mode === 'light' || mode === 'dark') root.setAttribute('data-theme', mode); else root.removeAttribute('data-theme');
     var palette = get('palette');
     if (PALETTES.indexOf(palette) !== -1) root.setAttribute('data-palette', palette); else root.removeAttribute('data-palette');
+    // The page or sheet in light colours, apart from the theme of the rest of the screen.
+    var light = get('paper') === 'light';
+    if (light) root.setAttribute('data-paper', 'light'); else root.removeAttribute('data-paper');
+    document.querySelectorAll('[data-theme-paper]').forEach(function (b) { b.setAttribute('aria-pressed', light ? 'true' : 'false'); });
   }
   apply();
   addEventListener('storage', apply);
@@ -24,6 +28,7 @@
       put('theme', value === 'system' ? null : value);
       apply();
     }
+    if (t.closest('[data-theme-paper]')) { put('paper', get('paper') === 'light' ? null : 'light'); apply(); }
     var palette = t.closest('[data-theme-palette]');
     if (palette) { put('palette', palette.getAttribute('data-theme-palette')); apply(); }
     var keep = t.closest('details.theme-menu');

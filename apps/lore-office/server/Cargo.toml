@@ -18,7 +18,8 @@ name = "lore-office-server"
 path = "src/main.rs"
 
 [features]
-# The wasm modules of the five apps are built into the binary (`scripts/build-office.sh` does this).
+# The modules `apps/lore-*/dist/app.wasm` of the five standalone apps (made by `quench build` in each) are compiled into the binary
+# instead of being read from `WASM_DIR`.
 embed = []
 
 [dependencies]

@@ -9,4 +9,6 @@ cargo clippy --target wasm32-unknown-unknown -p lore-launcher-app -p lore-docs-a
 cargo test --workspace
 cargo deny check
 cargo machete
+# The book: front matter, navigation and links.
+anvil docs check
 echo "all gates passed"

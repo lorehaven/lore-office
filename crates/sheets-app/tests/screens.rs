@@ -522,7 +522,11 @@ fn open_asks_for_a_file_and_shows_what_was_picked() {
     assert!(manual.answer_pick(vec![picked("budget.xlsx", small_xlsx())]));
     assert_eq!(s.text(0, 0), "Total");
     assert_eq!(s.text(0, 1), "42");
-    assert_eq!(s.r.text_of(s.one("class", "file-name")), "budget.xlsx");
+    assert_eq!(
+        s.r.attr(s.one("class", "file-name file-name-input"), "value")
+            .as_deref(),
+        Some("budget.xlsx")
+    );
     assert_eq!(s.r.text_of(s.one("role", "status")), "Opened budget.xlsx");
     assert_eq!(s.selected(), CellRef::new(0, 0));
     assert_eq!(s.state.sheet_names(), ["Budget", "Notes"]);
@@ -656,7 +660,11 @@ fn sheet_tabs_switch_the_sheet_and_add_new_ones() {
     // New starts again from nothing.
     choose(&s, "New");
     assert_eq!(s.state.sheet_names(), ["Sheet1"]);
-    assert_eq!(s.r.text_of(s.one("class", "file-name")), "Untitled.xlsx");
+    assert_eq!(
+        s.r.attr(s.one("class", "file-name file-name-input"), "value")
+            .as_deref(),
+        Some("Untitled.xlsx")
+    );
 }
 
 const fn pointer() -> Event {
@@ -4236,4 +4244,14 @@ fn a_drag_that_leaves_the_grid_keeps_growing_the_selection_until_it_is_released(
     let stopped = s.state.range_end.get_untracked().row;
     manual.advance(500.0);
     assert_eq!(s.state.range_end.get_untracked().row, stopped);
+}
+
+#[quench_test::test]
+fn typing_a_new_name_in_the_ribbon_renames_the_document_and_keeps_the_extension() {
+    let s = open(3);
+    let field = s.one("class", "file-name file-name-input");
+    s.r.fire(field, &Event::Change("Budget 2027".into()));
+    assert_eq!(s.state.name.get_untracked(), "Budget 2027.xlsx");
+    s.r.fire(field, &Event::Change("   ".into()));
+    assert_eq!(s.state.name.get_untracked(), "Budget 2027.xlsx");
 }

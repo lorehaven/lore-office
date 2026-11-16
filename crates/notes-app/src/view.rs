@@ -109,6 +109,7 @@ fn extras(state: &NotesState) -> Element {
             &current,
             Rc::new(move |code| pick.set_language(code)),
         ))
+        .child(office_theme::paper_button(&text("paper_toggle")))
         .child(office_theme::theme_menu(&office_theme::ThemeLabels {
             toggle: text("theme_toggle"),
             mode: text("theme_mode"),

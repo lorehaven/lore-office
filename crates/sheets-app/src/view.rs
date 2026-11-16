@@ -1324,9 +1324,13 @@ fn ribbon(state: &SheetState) -> Element {
         ("Layout", layout.into_iter().collect()),
         ("Data", data.into_iter().chain(rules).collect()),
     ];
-    office_ui::ribbon(
+    office_ui::ribbon_named(
         "lore-sheets",
         state.name.clone(),
+        Some({
+            let n = state.name.clone();
+            Rc::new(move |typed: &str| office_ui::rename_to(&n, typed)) as Rc<dyn Fn(&str)>
+        }),
         state.status.clone(),
         "Ribbon",
         file.unwrap_or_else(div),
@@ -1350,6 +1354,7 @@ fn extras(state: &SheetState) -> Element {
             &current,
             std::rc::Rc::new(move |code| pick.set_language(code)),
         ))
+        .child(office_theme::paper_button(&tr("paper_toggle")))
         .child(office_theme::theme_menu(&office_theme::ThemeLabels {
             toggle: tr("theme_toggle"),
             mode: tr("theme_mode"),

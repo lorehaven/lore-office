@@ -1,0 +1,28 @@
+title: Lore Office
+description: The office suite on Quench - docs, sheets, notes and pdf in the browser, with an optional cloud
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+  - scope:
+      path: "guides"
+    values:
+      render_with_liquid: false
+  - scope:
+      path: "apps"
+    values:
+      render_with_liquid: false
+  - scope:
+      path: "services"
+    values:
+      render_with_liquid: false
+  - scope:
+      path: "libs"
+    values:
+      render_with_liquid: false
+  - scope:
+      path: "index.md"
+    values:
+      render_with_liquid: false
+# the pages show `{{`-style text (formula and template examples): Liquid is off for them

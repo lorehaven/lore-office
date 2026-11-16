@@ -1,5 +1,6 @@
 language_label = Idioma
 theme_toggle = Cambiar tema
+paper_toggle = Mostrar la página en colores claros
 theme_mode = Modo
 theme_light = Claro
 theme_dark = Oscuro

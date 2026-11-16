@@ -109,6 +109,22 @@ pub fn theme_menu(labels: &ThemeLabels) -> Element {
         )
 }
 
+/// A button that shows the page or the sheet in light colours, whatever the theme of the rest of the screen is.
+///
+/// That gives a dark screen with a white page. The script keeps the choice and puts `data-paper="light"` on the page; the
+/// style sheet does the rest.
+#[must_use]
+pub fn paper_button(label: &str) -> Element {
+    button()
+        .attr("type", "button")
+        .class("paper-toggle")
+        .attr("data-theme-paper", "light")
+        .attr("aria-pressed", "false")
+        .attr("title", label.to_string())
+        .attr("aria-label", label.to_string())
+        .child(span().class("paper-icon"))
+}
+
 /// `pl-PL` as `🇵🇱`: the region's two letters as regional indicators. Nothing for a locale with no region.
 #[must_use]
 pub fn flag(locale: &str) -> String {

@@ -23,6 +23,10 @@ Without `SERVICE_AUTH_ENABLED=true` everyone is one local person (`X-Lore-User` 
 
 The API (`/lore-office/api`, see `apps/lore-office/server/src/lib.rs`): `status`, `usage`, `docs`, `docs/{id}`, `docs/{id}/share`, `shares`, `s/{token}`.
 
+## Documentation
+
+The book is in `docs/` (guides, apps, the service and its API, libraries), built with `anvil docs build`.
+
 ## Run it
 
 ```sh
