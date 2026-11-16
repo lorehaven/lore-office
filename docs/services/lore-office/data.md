@@ -19,6 +19,7 @@ The service keeps no database. A document is two files, its bytes and a small de
 | `size` | integer | bytes |
 | `modified` | integer | seconds since 1970 |
 | `etag` | string | changes when the bytes do; `<crc32 in 8 hexadecimal digits>-<length>` in the local store |
+| `folder` | string | the folder it is in (`Work/2026`); empty for the top; absent in older records, which read as empty |
 
 `Share`:
 
@@ -32,6 +33,8 @@ The service keeps no database. A document is two files, its bytes and a small de
 | `created` | integer | seconds since 1970 |
 | `expires` | integer or null | seconds since 1970; null: never |
 
+`Grant` (a document shared with a named person): `owner`, `doc`, `with`, `name`, `kind` (copied from the document when it is shared), `rights` (`View` or `Edit`), `created`.
+
 `Usage`: `{"used": <bytes>, "quota": <bytes>}`.
 
 ## Local store (`CLOUD_STORAGE=local`)
@@ -39,7 +42,10 @@ The service keeps no database. A document is two files, its bytes and a small de
 ```text
 <DATA_DIR>/users/<safe name>-<crc32 of the name, 8 hex digits>/<id>.bin    the document
 <DATA_DIR>/users/<safe name>-<crc32 of the name, 8 hex digits>/<id>.json   its `DocMeta`
+<DATA_DIR>/users/<key>/folders.json                                        the folders the person made (JSON array of paths)
 <DATA_DIR>/shares/<token>.json                                             a `Share`
+<DATA_DIR>/grants/to/<with key>/<owner key>-<doc>.json                     a `Grant`, where the person it is shared with looks
+<DATA_DIR>/grants/by/<owner key>/<doc>-<with key>.json                     the same, where the owner looks
 ```
 
 A safe name keeps letters, digits and `-_.`, is never empty and is at most 64 characters; the checksum of the real name keeps two names that look alike apart. A save writes the bytes to `<id>.tmp` first and renames it, so a failure part way leaves the old document whole. Usage is the sum of the `.bin` files of the person.
@@ -51,11 +57,12 @@ One warehouse storage per person, made the first time they save, named `lore-<na
 ```text
 docs/<id>.bin
 docs/<id>.json
+folders.json
 ```
 
 A save first asks warehouse for the storage (`GET /api/v1/files/{storage}`) and makes it (`POST /api/v1/files`) only when that answers 404. A person's usage is the sizes of the files under `docs/` added up from the listing, since warehouse's answer for one storage carries no totals.
 
-All share links are in one storage, `SHARES_STORAGE` (`lore-office-shares`), as `<token>.json`, so a link is found from its token.
+All share links are in one storage, `SHARES_STORAGE` (`lore-office-shares`), as `<token>.json`, so a link is found from its token; the grants to named people are in the same storage as `grants/to/<with key>/<owner key>-<doc>.json` and `grants/by/<owner key>/<doc>-<with key>.json` (`<key>` is `<safe name>-<crc32>`).
 
 The service uses warehouse's files API with a token it gets from gatehouse (`POST <GATEHOUSE_URL>/api/v1/token`, client credentials): `POST /api/v1/files` makes a storage (`name`, `owner`, `quota_bytes`), `PUT`, `GET` and `DELETE /api/v1/files/{storage}/file?path=` keep a file, `GET /api/v1/files/{storage}?prefix=&n=1000` lists (pages follow with `last`). A refused write over the quota (`413` or `507`) is a quota error to the person.
 

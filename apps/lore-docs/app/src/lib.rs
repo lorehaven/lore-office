@@ -14,7 +14,7 @@ pub fn app() -> View {
     browser::attach(&state);
     let cloud = office_cloud_ui::setup();
     {
-        let (out, back) = (state.clone(), state.clone());
+        let (out, back, rev) = (state.clone(), state.clone(), state.clone());
         cloud.bind(office_cloud_ui::Binding {
             kind: "docs",
             export: std::rc::Rc::new(move || {
@@ -22,6 +22,8 @@ pub fn app() -> View {
                 out.docx_bytes().ok().map(|b| (name, b))
             }),
             import: std::rc::Rc::new(move |name, bytes| back.load_bytes(name, bytes)),
+            revision: std::rc::Rc::new(move || u64::from(rev.rev.get())),
+            autosave: true,
         });
     }
     #[cfg(target_arch = "wasm32")]

@@ -63,7 +63,7 @@ fn ribbon(state: &DocState) -> Element {
             MenuItem::action("New", "", move || new.new_document()),
             MenuItem::action("Open\u{2026}", "", move || open.open_file()),
             MenuItem::Separator,
-            MenuItem::action("Save as Word document (.docx)", "Ctrl+S", move || {
+            MenuItem::action("Save as Word document (.docx)", file_hint(), move || {
                 docx.save_docx()
             }),
             MenuItem::action("Save as web page (.html)", "", {
@@ -928,7 +928,10 @@ fn page(state: &DocState) -> Element {
                 match k.key.as_str() {
                     "s" | "S" => {
                         quench_ui::prevent_default();
-                        keys.save_docx();
+                        // In the cloud (signed in) Ctrl+S saves there; the File menu still saves a file.
+                        if !office_cloud_ui::save_shortcut() {
+                            keys.save_docx();
+                        }
                     }
                     "p" | "P" => {
                         quench_ui::prevent_default();
@@ -1310,4 +1313,13 @@ fn header_bar(state: &DocState) -> Element {
             .into_view()
     });
     div().class("findslot").child(slot)
+}
+
+/// The shortcut shown beside saving a file: Ctrl+S, unless it saves to the cloud (then the cloud's item has it).
+fn file_hint() -> &'static str {
+    if office_cloud_ui::saves_to_cloud() {
+        ""
+    } else {
+        "Ctrl+S"
+    }
 }

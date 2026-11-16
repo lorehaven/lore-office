@@ -21,7 +21,7 @@ The page is the paper the document is set for: A4 by default; the **Paper** menu
 | | |
 |---|---|
 | open | `.docx`, `.txt`, `.md` (also by dropping the file) |
-| save | Word document (`.docx`, Ctrl+S), web page (`.html`), Markdown (`.md`), plain text (`.txt`) |
+| save | Word document (`.docx`; Ctrl+S when not signed in, see [Sharing](../guides/sharing.md)), web page (`.html`), Markdown (`.md`), plain text (`.txt`) |
 | export | PDF; Print… (Ctrl+P) opens the pages in a new tab |
 
 An opened `.docx` is written back in its own package: styles, themes, headers, properties and page setup are kept, and only the body is replaced. Content the model does not hold is simplified, and the status line says so.

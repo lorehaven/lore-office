@@ -18,7 +18,7 @@ pub fn app() -> View {
     browser::attach(&state);
     let cloud = office_cloud_ui::setup();
     {
-        let (out, back) = (state.clone(), state.clone());
+        let (out, back, rev) = (state.clone(), state.clone(), state.clone());
         cloud.bind(office_cloud_ui::Binding {
             kind: "notes",
             export: std::rc::Rc::new(move || {
@@ -35,6 +35,9 @@ pub fn app() -> View {
                 }]);
                 Ok(())
             }),
+            revision: std::rc::Rc::new(move || u64::from(rev.rev.get())),
+            // The cloud copy is the note that was open when it was saved; which note is open changes, so a save is the person's.
+            autosave: false,
         });
     }
     #[cfg(target_arch = "wasm32")]

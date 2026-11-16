@@ -4,8 +4,8 @@
     clippy::cloned_ref_to_slice_refs
 )]
 use office_cloud::{
-    Error, LocalStore, Rights, Share, Storage, WarehouseStore, new_id, now, open_share, safe_name,
-    save_share,
+    Error, LocalStore, Rights, Share, Storage, WarehouseStore, clean_folder, grant_doc,
+    granted_meta, new_id, now, open_granted, open_share, safe_name, save_granted, save_share,
 };
 
 fn run<F: std::future::Future>(f: F) -> F::Output {
@@ -205,6 +205,121 @@ fn a_share_link_opens_one_document_and_only_an_edit_link_saves_it() {
         );
         let _ = std::fs::remove_dir_all(dir);
     });
+}
+
+/// What both stores must do with folders and with documents shared with a named person.
+async fn folders_and_grants(store: &dyn Storage) {
+    let doc = store
+        .put("ada", None, "Plan.docx", "docs", b"one", None)
+        .await
+        .unwrap();
+    assert_eq!(doc.folder, "");
+    // Folders: made, found with the ones above them, filled by moving, kept when a document is saved over.
+    store.make_folder("ada", "Work/2026").await.unwrap();
+    assert_eq!(store.folders("ada").await.unwrap(), ["Work", "Work/2026"]);
+    assert!(store.make_folder("ada", "../x").await.is_err());
+    let moved = store.move_doc("ada", &doc.id, "Work/2026").await.unwrap();
+    assert_eq!(
+        (moved.folder.as_str(), moved.etag.as_str()),
+        ("Work/2026", doc.etag.as_str())
+    );
+    let saved = store
+        .put(
+            "ada",
+            Some(&doc.id),
+            "Plan.docx",
+            "docs",
+            b"two",
+            Some(&doc.etag),
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved.folder, "Work/2026", "a save keeps the folder");
+    assert!(
+        matches!(
+            store.delete_folder("ada", "Work").await,
+            Err(Error::Invalid(_))
+        ),
+        "not empty"
+    );
+    store.move_doc("ada", &doc.id, "").await.unwrap();
+    store.delete_folder("ada", "Work").await.unwrap();
+    assert!(store.folders("ada").await.unwrap().is_empty());
+    // Shared with a person: seen by them, opened and (with edit rights) saved in the owner's cloud.
+    assert!(matches!(
+        grant_doc(store, "ada", &doc.id, "ada", Rights::Edit).await,
+        Err(Error::Invalid(_))
+    ));
+    grant_doc(store, "ada", &doc.id, "bob", Rights::View)
+        .await
+        .unwrap();
+    let to_bob = store.grants_to("bob").await.unwrap();
+    assert_eq!(
+        (to_bob.len(), to_bob[0].owner.as_str(), to_bob[0].rights),
+        (1, "ada", Rights::View)
+    );
+    assert!(store.grants_to("carol").await.unwrap().is_empty());
+    let (_, meta, bytes) = open_granted(store, "bob", "ada", &doc.id).await.unwrap();
+    assert_eq!(
+        (meta.name.as_str(), bytes.as_slice()),
+        ("Plan.docx", &b"two"[..])
+    );
+    assert!(matches!(
+        save_granted(store, "bob", "ada", &doc.id, b"x", None).await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        open_granted(store, "carol", "ada", &doc.id).await,
+        Err(Error::NotFound)
+    ));
+    grant_doc(store, "ada", &doc.id, "bob", Rights::Edit)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.grants_to("bob").await.unwrap().len(),
+        1,
+        "one grant for a person and a document"
+    );
+    let (_, current) = granted_meta(store, "bob", "ada", &doc.id).await.unwrap();
+    let by_bob = save_granted(store, "bob", "ada", &doc.id, b"three", Some(&current.etag))
+        .await
+        .unwrap();
+    assert_eq!(store.get("ada", &doc.id).await.unwrap().1, b"three");
+    assert_ne!(by_bob.etag, current.etag);
+    assert!(matches!(
+        save_granted(store, "bob", "ada", &doc.id, b"late", Some(&current.etag)).await,
+        Err(Error::Conflict { .. })
+    ));
+    assert_eq!(store.grants_of("ada", &doc.id).await.unwrap().len(), 1);
+    // Taken back, and gone with the document.
+    store.delete_grant("ada", &doc.id, "bob").await.unwrap();
+    assert!(store.grants_to("bob").await.unwrap().is_empty());
+    grant_doc(store, "ada", &doc.id, "bob", Rights::View)
+        .await
+        .unwrap();
+    store.delete("ada", &doc.id).await.unwrap();
+    assert!(store.grants_to("bob").await.unwrap().is_empty());
+    assert!(store.get("ada", &doc.id).await.is_err());
+}
+
+#[quench_test::test]
+fn the_local_store_has_folders_and_documents_shared_with_a_named_person() {
+    run(async {
+        let (s, dir) = store(1 << 20);
+        folders_and_grants(&s).await;
+        let _ = std::fs::remove_dir_all(dir);
+    });
+}
+
+#[quench_test::test]
+fn folder_paths_are_cleaned_or_refused() {
+    assert_eq!(clean_folder(" /Work//2026/ ").unwrap(), "Work/2026");
+    assert_eq!(clean_folder("").unwrap(), "");
+    for bad in ["a/../b", "a/./b", "a\\b", "x:y", "a?b"] {
+        assert!(clean_folder(bad).is_err(), "{bad}");
+    }
+    assert!(clean_folder(&"a/".repeat(9)).is_err());
+    assert!(clean_folder(&"x".repeat(65)).is_err());
 }
 
 /// A small warehouse: the token route of gatehouse, and the files API with dynamic storages (`POST /api/v1/files` makes one and

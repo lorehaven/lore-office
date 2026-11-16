@@ -25,11 +25,39 @@ Calls act on the signed-in person's own documents. The exception is `s/{token}`,
 | `PUT /api/docs?name=<name>&kind=<kind>` | makes a document from the request body; answers `200` with its `DocMeta` |
 | `GET /api/docs/{id}` | the bytes, as `application/octet-stream`, with the headers below |
 | `PUT /api/docs/{id}?name=<name>&kind=<kind>` | replaces the document; the header `If-Match: <etag>` makes it conditional |
+| `GET /api/docs/{id}/meta` | the document's `DocMeta` without its bytes; what a page asks every few seconds to see whether someone else saved |
 | `DELETE /api/docs/{id}` | deletes the document and its links; `204` |
 
 `name` and `kind` are required on `PUT` (`400 name and kind are needed`); `kind` must be one of the four (`400`). The body is limited by `MAX_UPLOAD_BYTES` (`413 the file is too large`). A save over the quota answers `507`. An `If-Match` that is not the current etag answers `409 the document was changed by someone else` with the current etag in `x-etag`.
 
 Headers of `GET /api/docs/{id}` and `GET /api/s/{token}`: `x-name` (the name, percent-encoded), `x-kind`, `x-etag`, `cache-control: no-store`; the share one adds `x-rights` (`view` or `edit`).
+
+## Folders
+
+| Call | Does |
+|---|---|
+| `GET /api/folders` | every folder the person has (the ones they made and the ones their documents are in, with those above them), sorted, as a JSON array of paths such as `Work/2026` |
+| `POST /api/folders?path=<path>` | makes a folder (and those above it); answers with the list |
+| `DELETE /api/folders?path=<path>` | takes away a folder; `400 the folder is not empty` when a document or a folder is in it; `204` |
+| `PUT /api/docs/{id}/move?folder=<path>` | puts a document in a folder (empty `folder` is the top); the bytes and the etag stay; answers with the `DocMeta` |
+
+A path is parts separated by `/`: not empty, not `.` or `..`, none of `\ : * ? " < > |`, at most 64 characters a part and 8 parts. `PUT /api/docs` also takes `folder=` and makes the new document there. A save over a document keeps its folder.
+
+## Shared with a person
+
+A document can be shared with one named person. It stays in the owner's cloud (and counts against the owner's quota) and shows in the other person's panel under "Shared with me".
+
+| Call | Does |
+|---|---|
+| `POST /api/docs/{id}/grant?user=<name>&rights=<view\|edit>` | shares the owner's document with `user`; answers with the `Grant`. `400` for oneself or an empty name |
+| `GET /api/docs/{id}/grants` | who the owner shared it with |
+| `DELETE /api/docs/{id}/grant?user=<name>` | stops sharing it with them; `204` |
+| `GET /api/grants` | what others shared with the signed-in person (`Grant` array, newest first) |
+| `GET /api/shared/{owner}/{id}` | opens it: the bytes, with `x-rights` (`view` or `edit`) |
+| `GET /api/shared/{owner}/{id}/meta` | its `DocMeta`, with `x-rights` |
+| `PUT /api/shared/{owner}/{id}` | saves it, with `If-Match`; only with edit rights (`403` otherwise), into the owner's copy |
+
+Someone nothing was shared with gets `404`. The service does not check that `user` exists anywhere: the name must be the one the person signs in with.
 
 ## Links
 
@@ -39,6 +67,7 @@ Headers of `GET /api/docs/{id}` and `GET /api/s/{token}`: `x-name` (the name, pe
 | `GET /api/shares` | the person's links, newest first |
 | `DELETE /api/shares/{token}` | withdraws a link; `204` |
 | `GET /api/s/{token}` | opens the document of a link; no sign-in. `404` when the link is unknown, withdrawn or ended |
+| `GET /api/s/{token}/meta` | the `DocMeta` of the link's document, without its bytes; no sign-in; the header `x-rights` says what the link allows |
 | `PUT /api/s/{token}` | saves through an edit link; `If-Match` as above. `403 this link only lets you view` for a view link |
 
 ## Errors

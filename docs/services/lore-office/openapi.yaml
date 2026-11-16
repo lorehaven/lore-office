@@ -15,6 +15,8 @@ tags:
   - name: status
   - name: documents
   - name: links
+  - name: folders
+  - name: people
   - name: service
 paths:
   /api/status:
@@ -72,6 +74,7 @@ paths:
       parameters:
         - { $ref: "#/components/parameters/Name" }
         - { $ref: "#/components/parameters/KindRequired" }
+        - { name: folder, in: query, description: The folder to make it in (the top when absent)., schema: { type: string } }
       requestBody: { $ref: "#/components/requestBodies/File" }
       responses:
         "200":
@@ -121,6 +124,183 @@ paths:
       security: [{ session: [] }]
       responses:
         "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/docs/{id}/meta:
+    get:
+      tags: [documents]
+      summary: A document without its bytes
+      description: What a page asks every few seconds to see whether someone else saved the document.
+      security: [{ session: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: The document's description.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocMeta" }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/folders:
+    get:
+      tags: [folders]
+      summary: Every folder the person has
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: Paths, sorted, with the folders above each.
+          content:
+            application/json:
+              schema: { type: array, items: { type: string } }
+              example: ["Work", "Work/2026"]
+        "401": { $ref: "#/components/responses/SignIn" }
+    post:
+      tags: [folders]
+      summary: Make a folder (and those above it)
+      security: [{ session: [] }]
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The folders now.
+          content:
+            application/json:
+              schema: { type: array, items: { type: string } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/SignIn" }
+    delete:
+      tags: [folders]
+      summary: Take away an empty folder
+      security: [{ session: [] }]
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Removed. }
+        "400": { description: Not a folder path, or not empty. }
+        "401": { $ref: "#/components/responses/SignIn" }
+  /api/docs/{id}/move:
+    put:
+      tags: [folders]
+      summary: Put a document in a folder
+      security: [{ session: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: folder, in: query, description: The folder; empty is the top., schema: { type: string } }
+      responses:
+        "200":
+          description: The document as it is now (its bytes and etag are as they were).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocMeta" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/docs/{id}/grant:
+    post:
+      tags: [people]
+      summary: Share a document with a named person
+      security: [{ session: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: user, in: query, required: true, schema: { type: string } }
+        - { name: rights, in: query, schema: { type: string, enum: [view, edit], default: view } }
+      responses:
+        "200":
+          description: The grant.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Grant" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [people]
+      summary: Stop sharing a document with a person
+      security: [{ session: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: user, in: query, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Taken back. }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/docs/{id}/grants:
+    get:
+      tags: [people]
+      summary: Who the document is shared with
+      security: [{ session: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: The grants.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Grant" } }
+        "401": { $ref: "#/components/responses/SignIn" }
+  /api/grants:
+    get:
+      tags: [people]
+      summary: What others shared with the signed-in person
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: The grants, newest first.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Grant" } }
+        "401": { $ref: "#/components/responses/SignIn" }
+  /api/shared/{owner}/{id}:
+    parameters:
+      - { name: owner, in: path, required: true, schema: { type: string } }
+      - { $ref: "#/components/parameters/Id" }
+    get:
+      tags: [people]
+      summary: Open a document another person shared
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: The bytes; `x-rights` says what the grant allows.
+          headers:
+            x-rights: { schema: { type: string, enum: [view, edit] } }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [people]
+      summary: Save a document another person shared with edit rights
+      security: [{ session: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/IfMatch" }
+      requestBody: { $ref: "#/components/requestBodies/File" }
+      responses:
+        "200":
+          description: The document as it is now (in the owner's cloud).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocMeta" }
+        "403": { description: The grant only lets the person view. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "507": { $ref: "#/components/responses/NoRoom" }
+  /api/shared/{owner}/{id}/meta:
+    get:
+      tags: [people]
+      summary: The description of a shared document, without its bytes
+      security: [{ session: [] }]
+      parameters:
+        - { name: owner, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Id" }
+      responses:
+        "200":
+          description: The description; `x-rights` says what the grant allows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocMeta" }
         "401": { $ref: "#/components/responses/SignIn" }
         "404": { $ref: "#/components/responses/NotFound" }
   /api/docs/{id}/share:
@@ -216,6 +396,22 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "413": { $ref: "#/components/responses/TooLarge" }
         "507": { $ref: "#/components/responses/NoRoom" }
+  /api/s/{token}/meta:
+    get:
+      tags: [links]
+      summary: The description of a link's document, without its bytes
+      security: []
+      parameters:
+        - { $ref: "#/components/parameters/Token" }
+      responses:
+        "200":
+          description: The document's description; `x-rights` says what the link allows.
+          headers:
+            x-rights: { schema: { type: string, enum: [view, edit] } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocMeta" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /health:
     get:
       tags: [service]
@@ -311,6 +507,18 @@ components:
         size: { type: integer, format: int64, description: Bytes. }
         modified: { type: integer, format: int64, description: Seconds since 1970. }
         etag: { type: string }
+        folder: { type: string, description: "The folder it is in; empty for the top." }
+    Grant:
+      type: object
+      required: [owner, doc, with, name, kind, rights, created]
+      properties:
+        owner: { type: string }
+        doc: { type: string }
+        with: { type: string }
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/Kind" }
+        rights: { type: string, enum: [View, Edit] }
+        created: { type: integer, format: int64 }
     Share:
       type: object
       required: [token, owner, doc, name, kind, rights, created, expires]

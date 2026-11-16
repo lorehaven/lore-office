@@ -1,6 +1,9 @@
 //! A directory per user, with a quota.
 
-use crate::model::{DEFAULT_QUOTA_BYTES, DocMeta, Error, Share, Usage, new_id, now, safe_name};
+use crate::model::{
+    DEFAULT_QUOTA_BYTES, DocMeta, Error, Grant, Share, Usage, clean_folder, new_id, now, safe_name,
+};
+use crate::store::{user_key, with_ancestors};
 use crate::{Result, Storage};
 use quench_core::async_trait;
 use quench_serde::json;
@@ -79,6 +82,48 @@ impl LocalStore {
         })
     }
 
+    fn grant_paths(&self, owner: &str, doc: &str, with: &str) -> Result<[PathBuf; 2]> {
+        Self::check_id(doc)?;
+        let (o, w) = (user_key(owner), user_key(with));
+        Ok([
+            self.root
+                .join("grants")
+                .join("to")
+                .join(&w)
+                .join(format!("{o}-{doc}.json")),
+            self.root
+                .join("grants")
+                .join("by")
+                .join(&o)
+                .join(format!("{doc}-{w}.json")),
+        ])
+    }
+
+    fn read_grants(dir: &std::path::Path, keep: impl Fn(&Grant) -> bool) -> Vec<Grant> {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        let mut out: Vec<Grant> = entries
+            .filter_map(std::result::Result::ok)
+            .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+            .filter_map(|t| json::from_str::<Grant>(&t).ok())
+            .filter(|g| keep(g))
+            .collect();
+        out.sort_by_key(|g| std::cmp::Reverse(g.created));
+        out
+    }
+
+    fn folders_file(&self, user: &str) -> PathBuf {
+        self.user_dir(user).join("folders.json")
+    }
+
+    fn made_folders(&self, user: &str) -> Vec<String> {
+        std::fs::read_to_string(self.folders_file(user))
+            .ok()
+            .and_then(|t| json::from_str::<Vec<String>>(&t).ok())
+            .unwrap_or_default()
+    }
+
     fn share_path(&self, token: &str) -> Result<PathBuf> {
         if token.len() == 64 && token.chars().all(|c| c.is_ascii_hexdigit()) {
             Ok(self.root.join("shares").join(format!("{token}.json")))
@@ -117,6 +162,11 @@ impl Storage for LocalStore {
         Ok((meta, bytes))
     }
 
+    async fn meta(&self, user: &str, id: &str) -> Result<DocMeta> {
+        Self::check_id(id)?;
+        Self::read_meta(&self.user_dir(user), id)
+    }
+
     async fn put(
         &self,
         user: &str,
@@ -135,7 +185,7 @@ impl Storage for LocalStore {
         }
         let dir = self.user_dir(user);
         std::fs::create_dir_all(&dir).map_err(|e| io(&e))?;
-        let (id, before) = match id {
+        let (id, before, folder) = match id {
             Some(id) => {
                 Self::check_id(id)?;
                 let old = Self::read_meta(&dir, id)?;
@@ -144,9 +194,9 @@ impl Storage for LocalStore {
                 {
                     return Err(Error::Conflict { etag: old.etag });
                 }
-                (id.to_string(), old.size)
+                (id.to_string(), old.size, old.folder)
             }
-            None => (new_id(8), 0),
+            None => (new_id(8), 0, String::new()),
         };
         let used = Self::used(&dir).saturating_sub(before);
         if used + bytes.len() as u64 > self.quota {
@@ -162,6 +212,7 @@ impl Storage for LocalStore {
             size: bytes.len() as u64,
             modified: now(),
             etag: etag_of(bytes),
+            folder,
         };
         // The bytes first, under a name of their own, then in place: a failure part way leaves the old document whole.
         let tmp = dir.join(format!("{id}.tmp"));
@@ -178,11 +229,14 @@ impl Storage for LocalStore {
         Self::read_meta(&dir, id)?;
         std::fs::remove_file(dir.join(format!("{id}.bin"))).map_err(|e| io(&e))?;
         std::fs::remove_file(dir.join(format!("{id}.json"))).map_err(|e| io(&e))?;
-        // The links to it go with it.
+        // The links and the grants to it go with it.
         for share in self.shares_of(user).await? {
             if share.doc == id {
                 let _ = self.delete_share(user, &share.token).await;
             }
+        }
+        for grant in self.grants_of(user, id).await? {
+            let _ = self.delete_grant(user, id, &grant.with).await;
         }
         Ok(())
     }
@@ -229,5 +283,90 @@ impl Storage for LocalStore {
             return Err(Error::NotFound);
         }
         std::fs::remove_file(self.share_path(token)?).map_err(|e| io(&e))
+    }
+
+    async fn folders(&self, user: &str) -> Result<Vec<String>> {
+        let mut all = self.made_folders(user);
+        all.extend(self.list(user).await?.into_iter().map(|d| d.folder));
+        Ok(with_ancestors(all))
+    }
+
+    async fn make_folder(&self, user: &str, path: &str) -> Result<()> {
+        let path = clean_folder(path)?;
+        if path.is_empty() {
+            return Err(Error::Invalid("a folder needs a name".into()));
+        }
+        let mut made = self.made_folders(user);
+        if !made.contains(&path) {
+            made.push(path);
+        }
+        std::fs::create_dir_all(self.user_dir(user)).map_err(|e| io(&e))?;
+        std::fs::write(self.folders_file(user), json::to_string(&made)).map_err(|e| io(&e))
+    }
+
+    async fn delete_folder(&self, user: &str, path: &str) -> Result<()> {
+        let path = clean_folder(path)?;
+        let inside = |p: &str| p == path || p.starts_with(&format!("{path}/"));
+        if path.is_empty() || self.list(user).await?.iter().any(|d| inside(&d.folder)) {
+            return Err(Error::Invalid("the folder is not empty".into()));
+        }
+        let made: Vec<String> = self
+            .made_folders(user)
+            .into_iter()
+            .filter(|p| !inside(p))
+            .collect();
+        std::fs::write(self.folders_file(user), json::to_string(&made)).map_err(|e| io(&e))
+    }
+
+    async fn move_doc(&self, user: &str, id: &str, folder: &str) -> Result<DocMeta> {
+        Self::check_id(id)?;
+        let folder = clean_folder(folder)?;
+        let dir = self.user_dir(user);
+        let mut meta = Self::read_meta(&dir, id)?;
+        meta.folder = folder;
+        std::fs::write(dir.join(format!("{id}.json")), json::to_string(&meta))
+            .map_err(|e| io(&e))?;
+        Ok(meta)
+    }
+
+    async fn put_grant(&self, grant: &Grant) -> Result<()> {
+        Self::read_meta(&self.user_dir(&grant.owner), &grant.doc)?;
+        for path in self.grant_paths(&grant.owner, &grant.doc, &grant.with)? {
+            std::fs::create_dir_all(path.parent().unwrap_or(&self.root)).map_err(|e| io(&e))?;
+            std::fs::write(path, json::to_string(grant)).map_err(|e| io(&e))?;
+        }
+        Ok(())
+    }
+
+    async fn grants_to(&self, user: &str) -> Result<Vec<Grant>> {
+        let dir = self.root.join("grants").join("to").join(user_key(user));
+        Ok(Self::read_grants(&dir, |g| g.with == user))
+    }
+
+    async fn grants_of(&self, owner: &str, doc: &str) -> Result<Vec<Grant>> {
+        let dir = self.root.join("grants").join("by").join(user_key(owner));
+        Ok(Self::read_grants(&dir, |g| {
+            g.owner == owner && g.doc == doc
+        }))
+    }
+
+    async fn grant(&self, owner: &str, doc: &str, with: &str) -> Result<Grant> {
+        let [to, _] = self.grant_paths(owner, doc, with)?;
+        let text = std::fs::read_to_string(to).map_err(|e| io(&e))?;
+        let grant: Grant = json::from_str(&text).map_err(|e| Error::Io(e.to_string()))?;
+        if grant.owner == owner && grant.with == with {
+            Ok(grant)
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+
+    async fn delete_grant(&self, owner: &str, doc: &str, with: &str) -> Result<()> {
+        let [to, by] = self.grant_paths(owner, doc, with)?;
+        if !to.exists() {
+            return Err(Error::NotFound);
+        }
+        let _ = std::fs::remove_file(by);
+        std::fs::remove_file(to).map_err(|e| io(&e))
     }
 }

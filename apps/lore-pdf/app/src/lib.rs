@@ -19,7 +19,7 @@ pub fn app() -> View {
     }
     let cloud = office_cloud_ui::setup();
     {
-        let (out, back) = (state.clone(), state.clone());
+        let (out, back, rev) = (state.clone(), state.clone(), state.clone());
         cloud.bind(office_cloud_ui::Binding {
             kind: "pdf",
             export: std::rc::Rc::new(move || {
@@ -27,6 +27,9 @@ pub fn app() -> View {
                 (!bytes.is_empty()).then(|| (out.name.get_untracked(), bytes))
             }),
             import: std::rc::Rc::new(move |name, bytes| back.load_bytes(name, bytes)),
+            revision: std::rc::Rc::new(move || u64::from(rev.rev.get())),
+            // Changes to a PDF (marks, moved pages) are sent when the person saves, not by themselves.
+            autosave: false,
         });
     }
     #[cfg(target_arch = "wasm32")]

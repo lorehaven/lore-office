@@ -28,14 +28,16 @@ cloud.bind(office_cloud_ui::Binding {
 | `Context` | what the server told the page: `api` (empty: no cloud), `user`, `denied` (signed in but without access), `login`, `share` (`SharedWith { token, edit }`); `Context::from_json`, `to_json` |
 | `Transport` | how a request reaches the server: `send(method, url, headers, body, done)` |
 | `Reply` | `status`, `headers`, `body`; `Reply::header(name)` |
-| `Binding` | what an app gives the cloud: its `kind`, `export` and `import` |
+| `Binding` | what an app gives the cloud: its `kind`, `export`, `import`, a `revision` (a number that changes whenever the document does) and whether `autosave` is on |
 | `Cloud` | the state and actions: `enabled`, `open_panel`, `save`, `save_copy`, `open_doc`, `open_share`, `delete_doc`, `share`, `list_shares`, `withdraw`, `refresh`, `close`, and the signals the panels read |
 | `Panel` | `Closed`, `Documents`, `Sharing(id)` |
-| `Opened` | the document open now and where it is in the cloud |
+| `Section` | `Mine` (the person's folders) or `Shared` (what others shared with them) |
+| `Opened` | the document open now and where it is in the cloud: its `id`, `etag`, the link `token` or the `owner` it came through, and whether this page may save it (`edit`) |
 | `current()`, `setup()`, `set_server_context(context)` | the page's cloud |
 | `with_menu(items)`, `menu_items()` | the File menu's cloud items |
+| `saves_to_cloud()`, `save_shortcut()` | whether Ctrl+S saves to the cloud here (signed in, or an edit link); the app's Ctrl+S calls `save_shortcut()` and saves a file only when it answers `false` |
 | `cloud_button()`, `overlay()` | the top-bar button; the panel and the banner |
 | `server_page(address, kind)` | the page of an app on a server the person typed: adds `https://` and `/lore-office` where missing |
 | `web` (wasm32 only) | the browser's `Transport` |
 
-The panel's account line shows who is signed in (Sign out), or Sign in, or that the account has no access; a Server field with *Connect* opens the same app on another lore-office server (the page changes; the API is not called across origins).
+The panel's account line shows who is signed in (Sign out), or Sign in, or that the account has no access; the document being in the cloud is looked after on a timer (changes noticed every 400 ms, sent after 2 s of quiet when `autosave` is on, the cloud asked every 5 s whether someone else saved; `check_remote`, `reload`, `keep_mine`); a Server field with *Connect* opens the same app on another lore-office server (the page changes; the API is not called across origins).

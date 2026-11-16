@@ -18,6 +18,9 @@ pub struct DocMeta {
     pub modified: u64,
     /// Changes when the bytes do.
     pub etag: String,
+    /// The folder it is in (`Reports/2026`); empty for the top.
+    #[serde(default)]
+    pub folder: String,
 }
 
 /// What a share link allows.
@@ -65,6 +68,52 @@ impl Share {
     pub fn expired(&self, now: u64) -> bool {
         self.expires.is_some_and(|e| e <= now)
     }
+}
+
+/// A document shared with one named person: it stays in the owner's cloud and shows in that person's panel under "shared with
+/// me", with the rights given.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Grant {
+    pub owner: String,
+    pub doc: String,
+    /// Who it is shared with.
+    pub with: String,
+    pub name: String,
+    pub kind: String,
+    pub rights: Rights,
+    pub created: u64,
+}
+
+/// A folder path made fit to keep: no empty parts, no `.` or `..`, nothing a file name cannot have, at most 8 levels and 64
+/// characters a level. The top is the empty string.
+///
+/// # Errors
+///
+/// [`Error::Invalid`] when the path is not one.
+pub fn clean_folder(path: &str) -> Result<String, Error> {
+    let mut parts: Vec<String> = Vec::new();
+    for part in path.split('/') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        if part == "."
+            || part == ".."
+            || part.chars().count() > 64
+            || part
+                .chars()
+                .any(|c| c.is_control() || "\\:*?\"<>|".contains(c))
+        {
+            return Err(Error::Invalid(
+                "a folder name has no / \\ : * ? \" < > | and is at most 64 characters".into(),
+            ));
+        }
+        parts.push(part.to_string());
+    }
+    if parts.len() > 8 {
+        return Err(Error::Invalid("folders go at most 8 levels deep".into()));
+    }
+    Ok(parts.join("/"))
 }
 
 /// Space used and allowed, in bytes.

@@ -197,6 +197,12 @@ impl CloudApi {
         if let ["s", token] = parts.as_slice() {
             return self.shared(&mut req, token).await;
         }
+        if let ["s", token, "meta"] = parts.as_slice() {
+            return match office_cloud::share_meta(&*self.store, token).await {
+                Ok((share, meta)) => json(&meta).header("x-rights", share.rights.word()),
+                Err(e) => failed(&e),
+            };
+        }
         let user = user_of(&req, &self.jwt).await;
         if let ["status"] = parts.as_slice() {
             let body = format!(
@@ -233,15 +239,104 @@ impl CloudApi {
                 let (Some(name), Some(kind)) = (query(&req, "name"), query(&req, "kind")) else {
                     return reply(StatusCode::BAD_REQUEST, "name and kind are needed");
                 };
+                let folder = query(&req, "folder").unwrap_or_default();
+                if let Err(e) = office_cloud::clean_folder(&folder) {
+                    return failed(&e);
+                }
                 let bytes = match self.body(&mut req).await {
                     Ok(b) => b,
                     Err(r) => return r,
                 };
+                match store.put(&user, None, &name, &kind, &bytes, None).await {
+                    // A new document starts at the top; into a folder is a second step.
+                    Ok(meta) if !folder.is_empty() => store
+                        .move_doc(&user, &meta.id, &folder)
+                        .await
+                        .map_or_else(|e| failed(&e), |m| json(&m)),
+                    Ok(meta) => json(&meta),
+                    Err(e) => failed(&e),
+                }
+            }
+            ("GET", ["folders"]) => store
+                .folders(&user)
+                .await
+                .map_or_else(|e| failed(&e), |f| json(&f)),
+            ("POST", ["folders"]) => {
+                let Some(path) = query(&req, "path") else {
+                    return reply(StatusCode::BAD_REQUEST, "path is needed");
+                };
+                match store.make_folder(&user, &path).await {
+                    Ok(()) => store
+                        .folders(&user)
+                        .await
+                        .map_or_else(|e| failed(&e), |f| json(&f)),
+                    Err(e) => failed(&e),
+                }
+            }
+            ("DELETE", ["folders"]) => {
+                let Some(path) = query(&req, "path") else {
+                    return reply(StatusCode::BAD_REQUEST, "path is needed");
+                };
                 store
-                    .put(&user, None, &name, &kind, &bytes, None)
+                    .delete_folder(&user, &path)
+                    .await
+                    .map_or_else(|e| failed(&e), |()| Response::new(StatusCode::NO_CONTENT))
+            }
+            ("PUT", ["docs", id, "move"]) => store
+                .move_doc(&user, id, &query(&req, "folder").unwrap_or_default())
+                .await
+                .map_or_else(|e| failed(&e), |m| json(&m)),
+            ("POST", ["docs", id, "grant"]) => {
+                let Some(rights) =
+                    Rights::parse(&query(&req, "rights").unwrap_or_else(|| "view".into()))
+                else {
+                    return reply(StatusCode::BAD_REQUEST, "rights are view or edit");
+                };
+                let with = query(&req, "user").unwrap_or_default();
+                office_cloud::grant_doc(store, &user, id, &with, rights)
+                    .await
+                    .map_or_else(|e| failed(&e), |g| json(&g))
+            }
+            ("GET", ["docs", id, "grants"]) => store
+                .grants_of(&user, id)
+                .await
+                .map_or_else(|e| failed(&e), |g| json(&g)),
+            ("DELETE", ["docs", id, "grant"]) => store
+                .delete_grant(&user, id, &query(&req, "user").unwrap_or_default())
+                .await
+                .map_or_else(|e| failed(&e), |()| Response::new(StatusCode::NO_CONTENT)),
+            ("GET", ["grants"]) => store
+                .grants_to(&user)
+                .await
+                .map_or_else(|e| failed(&e), |g| json(&g)),
+            ("GET", ["shared", owner, id]) => {
+                match office_cloud::open_granted(store, &user, owner, id).await {
+                    Ok((grant, meta, bytes)) => {
+                        file(&meta, bytes).header("x-rights", grant.rights.word())
+                    }
+                    Err(e) => failed(&e),
+                }
+            }
+            ("GET", ["shared", owner, id, "meta"]) => {
+                match office_cloud::granted_meta(store, &user, owner, id).await {
+                    Ok((grant, meta)) => json(&meta).header("x-rights", grant.rights.word()),
+                    Err(e) => failed(&e),
+                }
+            }
+            ("PUT", ["shared", owner, id]) => {
+                let if_match = req.header("if-match").map(str::to_string);
+                let bytes = match self.body(&mut req).await {
+                    Ok(b) => b,
+                    Err(r) => return r,
+                };
+                office_cloud::save_granted(store, &user, owner, id, &bytes, if_match.as_deref())
                     .await
                     .map_or_else(|e| failed(&e), |m| json(&m))
             }
+            ("GET", ["docs", id, "meta"]) => store
+                .meta(&user, id)
+                .await
+                .map_or_else(|e| failed(&e), |m| json(&m)),
             ("GET", ["docs", id]) => store
                 .get(&user, id)
                 .await

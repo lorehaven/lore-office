@@ -375,7 +375,7 @@ fn file_groups(state: &SheetState) -> Vec<Element> {
             MenuItem::sub(
                 "Save\u{2026}",
                 vec![
-                    MenuItem::action("Excel workbook (.xlsx)", "Ctrl+S", move || {
+                    MenuItem::action("Excel workbook (.xlsx)", file_hint(), move || {
                         xlsx.save_xlsx();
                     }),
                     MenuItem::action("OpenDocument spreadsheet (.ods)", "", move || {
@@ -3098,7 +3098,11 @@ fn key_down(state: &SheetState, k: &KeyEvent) -> bool {
         "b" | "B" if command => state.toggle_bold(),
         "i" | "I" if command => state.toggle_italic(),
         "u" | "U" if command => state.toggle_underline(),
-        "s" | "S" if command => state.save_xlsx(),
+        "s" | "S" if command => {
+            if !office_cloud_ui::save_shortcut() {
+                state.save_xlsx();
+            }
+        }
         "p" | "P" if command => state.print(),
         "+" if command => state.insert_selected(state.structure_axis()),
         "=" if command && k.shift => state.insert_selected(state.structure_axis()),
@@ -3125,4 +3129,13 @@ fn key_down(state: &SheetState, k: &KeyEvent) -> bool {
         _ => return false,
     }
     true
+}
+
+/// The shortcut shown beside saving a file: Ctrl+S, unless it saves to the cloud (then the cloud's item has it).
+fn file_hint() -> &'static str {
+    if office_cloud_ui::saves_to_cloud() {
+        ""
+    } else {
+        "Ctrl+S"
+    }
 }

@@ -35,7 +35,9 @@ fn screen(state: &NotesState) -> View {
             match k.key.as_str() {
                 "s" | "S" if command => {
                     prevent_default();
-                    keys.save_md();
+                    if !office_cloud_ui::save_shortcut() {
+                        keys.save_md();
+                    }
                 }
                 "o" | "O" if command => {
                     prevent_default();
@@ -145,7 +147,7 @@ fn file_menu(state: &NotesState) -> Element {
             }),
             MenuItem::action("Open files\u{2026}", "", move || open.open_files()),
             MenuItem::Separator,
-            MenuItem::action("Save note (.md)", "Ctrl+S", move || save.save_md()),
+            MenuItem::action("Save note (.md)", file_hint(), move || save.save_md()),
             MenuItem::action("Save all notes (.zip)", "", move || zip.save_zip()),
             MenuItem::sub(
                 "Export\u{2026}",
@@ -940,4 +942,13 @@ fn present_layer(state: &NotesState) -> View {
                 .into_view()
         },
     )
+}
+
+/// The shortcut shown beside saving a file: Ctrl+S, unless it saves to the cloud (then the cloud's item has it).
+fn file_hint() -> &'static str {
+    if office_cloud_ui::saves_to_cloud() {
+        ""
+    } else {
+        "Ctrl+S"
+    }
 }

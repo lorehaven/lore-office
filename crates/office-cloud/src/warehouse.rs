@@ -11,7 +11,10 @@
 //! alone. The calls are made as the service's own machine identity (a gatehouse client with `warehouse:write`); which user
 //! may touch which storage is decided here, by the name of the storage, never by what the caller asks for.
 
-use crate::model::{DEFAULT_QUOTA_BYTES, DocMeta, Error, Share, Usage, new_id, now, safe_name};
+use crate::model::{
+    DEFAULT_QUOTA_BYTES, DocMeta, Error, Grant, Share, Usage, clean_folder, new_id, now, safe_name,
+};
+use crate::store::{user_key, with_ancestors};
 use crate::{Result, Storage};
 use quench_client::transport::Client;
 use quench_core::async_trait;
@@ -171,6 +174,37 @@ impl WarehouseStore {
         let status = res.status().as_u16();
         let bytes = res.bytes().await.map_err(err)?.to_vec();
         Ok((status, bytes))
+    }
+
+    fn grant_paths(owner: &str, doc: &str, with: &str) -> [String; 2] {
+        let (o, w) = (user_key(owner), user_key(with));
+        [
+            format!("grants/to/{w}/{o}-{doc}.json"),
+            format!("grants/by/{o}/{doc}-{w}.json"),
+        ]
+    }
+
+    /// The grants kept under `prefix` in the shares storage.
+    async fn read_grants(&self, prefix: &str) -> Result<Vec<Grant>> {
+        let mut out = Vec::new();
+        for path in self.names(&self.shares_storage, prefix).await? {
+            if let Ok(bytes) = self.read(&self.shares_storage, &path).await
+                && let Ok(grant) = json::from_str::<Grant>(&String::from_utf8_lossy(&bytes))
+            {
+                out.push(grant);
+            }
+        }
+        out.sort_by_key(|g| std::cmp::Reverse(g.created));
+        Ok(out)
+    }
+
+    /// The folders the user made (the others are those their documents are in).
+    async fn made_folders(&self, user: &str) -> Result<Vec<String>> {
+        match self.read(&Self::storage_of(user), "folders.json").await {
+            Ok(bytes) => Ok(json::from_str(&String::from_utf8_lossy(&bytes)).unwrap_or_default()),
+            Err(Error::NotFound) => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
     }
 
     fn file_path(storage: &str, path: &str) -> String {
@@ -355,6 +389,17 @@ impl Storage for WarehouseStore {
         Ok((meta, bytes))
     }
 
+    async fn meta(&self, user: &str, id: &str) -> Result<DocMeta> {
+        if !id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(Error::Invalid("a document id is hexadecimal".into()));
+        }
+        let storage = Self::storage_of(user);
+        json::from_str(&String::from_utf8_lossy(
+            &self.read(&storage, &format!("docs/{id}.json")).await?,
+        ))
+        .map_err(err)
+    }
+
     async fn put(
         &self,
         user: &str,
@@ -369,7 +414,7 @@ impl Storage for WarehouseStore {
         }
         let storage = Self::storage_of(user);
         self.ensure(&storage, user).await?;
-        let id = match id {
+        let (id, folder) = match id {
             Some(id) => {
                 let (old, _) = self.get(user, id).await?;
                 if let Some(want) = if_match
@@ -377,9 +422,9 @@ impl Storage for WarehouseStore {
                 {
                     return Err(Error::Conflict { etag: old.etag });
                 }
-                id.to_string()
+                (id.to_string(), old.folder)
             }
-            None => new_id(8),
+            None => (new_id(8), String::new()),
         };
         let meta = DocMeta {
             id: id.clone(),
@@ -388,6 +433,7 @@ impl Storage for WarehouseStore {
             size: bytes.len() as u64,
             modified: now(),
             etag: etag_of(bytes),
+            folder,
         };
         self.write(&storage, &format!("docs/{id}.bin"), bytes.to_vec())
             .await?;
@@ -415,6 +461,9 @@ impl Storage for WarehouseStore {
             if share.doc == id {
                 let _ = self.delete_share(user, &share.token).await;
             }
+        }
+        for grant in self.grants_of(user, id).await? {
+            let _ = self.delete_grant(user, id, &grant.with).await;
         }
         Ok(())
     }
@@ -491,5 +540,130 @@ impl Storage for WarehouseStore {
         } else {
             Err(Error::Io(format!("warehouse answered {status}")))
         }
+    }
+
+    async fn folders(&self, user: &str) -> Result<Vec<String>> {
+        let mut all = self.made_folders(user).await?;
+        all.extend(self.list(user).await?.into_iter().map(|d| d.folder));
+        Ok(with_ancestors(all))
+    }
+
+    async fn make_folder(&self, user: &str, path: &str) -> Result<()> {
+        let path = clean_folder(path)?;
+        if path.is_empty() {
+            return Err(Error::Invalid("a folder needs a name".into()));
+        }
+        let mut made = self.made_folders(user).await?;
+        if !made.contains(&path) {
+            made.push(path);
+        }
+        let storage = Self::storage_of(user);
+        self.ensure(&storage, user).await?;
+        self.write(
+            &storage,
+            "folders.json",
+            json::to_string(&made).into_bytes(),
+        )
+        .await
+    }
+
+    async fn delete_folder(&self, user: &str, path: &str) -> Result<()> {
+        let path = clean_folder(path)?;
+        let inside = |p: &str| p == path || p.starts_with(&format!("{path}/"));
+        if path.is_empty() || self.list(user).await?.iter().any(|d| inside(&d.folder)) {
+            return Err(Error::Invalid("the folder is not empty".into()));
+        }
+        let made: Vec<String> = self
+            .made_folders(user)
+            .await?
+            .into_iter()
+            .filter(|p| !inside(p))
+            .collect();
+        self.write(
+            &Self::storage_of(user),
+            "folders.json",
+            json::to_string(&made).into_bytes(),
+        )
+        .await
+    }
+
+    async fn move_doc(&self, user: &str, id: &str, folder: &str) -> Result<DocMeta> {
+        let folder = clean_folder(folder)?;
+        let mut meta = self.meta(user, id).await?;
+        meta.folder = folder;
+        self.write(
+            &Self::storage_of(user),
+            &format!("docs/{id}.json"),
+            json::to_string(&meta).into_bytes(),
+        )
+        .await?;
+        Ok(meta)
+    }
+
+    async fn put_grant(&self, grant: &Grant) -> Result<()> {
+        self.meta(&grant.owner, &grant.doc).await?;
+        self.ensure(&self.shares_storage, "admin").await.ok();
+        for path in Self::grant_paths(&grant.owner, &grant.doc, &grant.with) {
+            self.write(
+                &self.shares_storage,
+                &path,
+                json::to_string(grant).into_bytes(),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn grants_to(&self, user: &str) -> Result<Vec<Grant>> {
+        let prefix = format!("grants/to/{}/", user_key(user));
+        Ok(self
+            .read_grants(&prefix)
+            .await?
+            .into_iter()
+            .filter(|g| g.with == user)
+            .collect())
+    }
+
+    async fn grants_of(&self, owner: &str, doc: &str) -> Result<Vec<Grant>> {
+        let prefix = format!("grants/by/{}/{doc}-", user_key(owner));
+        Ok(self
+            .read_grants(&prefix)
+            .await?
+            .into_iter()
+            .filter(|g| g.owner == owner && g.doc == doc)
+            .collect())
+    }
+
+    async fn grant(&self, owner: &str, doc: &str, with: &str) -> Result<Grant> {
+        if !doc.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(Error::NotFound);
+        }
+        let [to, _] = Self::grant_paths(owner, doc, with);
+        let grant: Grant = json::from_str(&String::from_utf8_lossy(
+            &self.read(&self.shares_storage, &to).await?,
+        ))
+        .map_err(err)?;
+        if grant.owner == owner && grant.with == with {
+            Ok(grant)
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+
+    async fn delete_grant(&self, owner: &str, doc: &str, with: &str) -> Result<()> {
+        for path in Self::grant_paths(owner, doc, with) {
+            let (status, _) = self
+                .call(
+                    "DELETE",
+                    &Self::file_path(&self.shares_storage, &path),
+                    None,
+                    "",
+                )
+                .await?;
+            if !(200..300).contains(&status) && status != 404 {
+                return Err(Error::Io(format!("warehouse answered {status}")));
+            }
+        }
+        Ok(())
     }
 }

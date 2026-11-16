@@ -455,3 +455,286 @@ fn after_signing_in_a_person_goes_back_to_the_page_they_came_from() {
         ));
     });
 }
+
+#[quench_test::test]
+fn the_meta_calls_say_whether_a_document_changed_without_sending_it() {
+    run(async {
+        let r = rig("/lore-office", 1 << 20).await;
+        let alice = [("x-lore-user", "alice"), ("host", "office.example")];
+        let field = |text: &str, key: &str| {
+            quench_serde::json::parse(text)
+                .unwrap()
+                .get(key)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let put = r
+            .call(
+                "PUT",
+                "/lore-office/api/docs?name=A.docx&kind=docs",
+                &alice,
+                b"one",
+            )
+            .await;
+        let (id, first) = (field(&put.text(), "id"), field(&put.text(), "etag"));
+        let meta = r
+            .call(
+                "GET",
+                &format!("/lore-office/api/docs/{id}/meta"),
+                &alice,
+                b"",
+            )
+            .await;
+        assert_eq!(meta.status, 200);
+        assert_eq!(field(&meta.text(), "etag"), first);
+        assert!(!meta.text().contains("one"), "no bytes");
+        // Someone else's document is not found; nobody signed in is refused.
+        let bob = [("x-lore-user", "bob")];
+        assert_eq!(
+            r.call(
+                "GET",
+                &format!("/lore-office/api/docs/{id}/meta"),
+                &bob,
+                b""
+            )
+            .await
+            .status,
+            404
+        );
+        // A link: its meta is open to whoever holds it, and follows the document.
+        let share = r
+            .call(
+                "POST",
+                &format!("/lore-office/api/docs/{id}/share?rights=edit"),
+                &alice,
+                b"",
+            )
+            .await;
+        let token = field(&share.text(), "token");
+        let linked = r
+            .call("GET", &format!("/lore-office/api/s/{token}/meta"), &[], b"")
+            .await;
+        assert_eq!(linked.status, 200);
+        assert_eq!(linked.header("x-rights"), Some("edit"));
+        assert_eq!(field(&linked.text(), "etag"), first);
+        let saved = r
+            .call(
+                "PUT",
+                &format!("/lore-office/api/s/{token}"),
+                &[("if-match", &first)],
+                b"two",
+            )
+            .await;
+        let second = field(&saved.text(), "etag");
+        assert_ne!(first, second);
+        let again = r
+            .call("GET", &format!("/lore-office/api/s/{token}/meta"), &[], b"")
+            .await;
+        assert_eq!(field(&again.text(), "etag"), second);
+        assert_eq!(
+            r.call(
+                "GET",
+                &format!("/lore-office/api/s/{}/meta", "0".repeat(64)),
+                &[],
+                b""
+            )
+            .await
+            .status,
+            404
+        );
+    });
+}
+
+#[quench_test::test]
+fn folders_move_documents_and_a_document_can_be_shared_with_a_named_person() {
+    run(async {
+        let r = rig("/lore-office", 1 << 20).await;
+        let (alice, bob) = ([("x-lore-user", "alice")], [("x-lore-user", "bob")]);
+        let field = |text: &str, key: &str| {
+            quench_serde::json::parse(text)
+                .unwrap()
+                .get(key)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        // A document made into a folder; the folders list; a move; a folder that is not empty is kept.
+        let made = r
+            .call(
+                "PUT",
+                "/lore-office/api/docs?name=Plan.docx&kind=docs&folder=Work%2F2026",
+                &alice,
+                b"one",
+            )
+            .await;
+        assert_eq!(made.status, 200, "{}", made.text());
+        assert_eq!(field(&made.text(), "folder"), "Work/2026");
+        let id = field(&made.text(), "id");
+        let folders = r.call("GET", "/lore-office/api/folders", &alice, b"").await;
+        assert_eq!(folders.text(), r#"["Work","Work/2026"]"#);
+        let made_folder = r
+            .call("POST", "/lore-office/api/folders?path=Later", &alice, b"")
+            .await;
+        assert!(made_folder.text().contains("Later"));
+        let moved = r
+            .call(
+                "PUT",
+                &format!("/lore-office/api/docs/{id}/move?folder=Later"),
+                &alice,
+                b"",
+            )
+            .await;
+        assert_eq!(field(&moved.text(), "folder"), "Later");
+        assert_eq!(
+            r.call("DELETE", "/lore-office/api/folders?path=Later", &alice, b"")
+                .await
+                .status,
+            400,
+            "not empty"
+        );
+        assert_eq!(
+            r.call("PUT", "/lore-office/api/docs/zz/move?folder=a", &alice, b"")
+                .await
+                .status,
+            400
+        );
+        // Shared with bob: he sees it, opens it, and with edit rights saves it into alice's cloud.
+        assert_eq!(
+            r.call("GET", "/lore-office/api/grants", &bob, b"")
+                .await
+                .text(),
+            "[]"
+        );
+        let shared = r
+            .call(
+                "POST",
+                &format!("/lore-office/api/docs/{id}/grant?user=bob&rights=view"),
+                &alice,
+                b"",
+            )
+            .await;
+        assert_eq!(shared.status, 200, "{}", shared.text());
+        assert_eq!(
+            r.call(
+                "POST",
+                &format!("/lore-office/api/docs/{id}/grant?user=alice"),
+                &alice,
+                b""
+            )
+            .await
+            .status,
+            400,
+            "not with oneself"
+        );
+        let listed = r.call("GET", "/lore-office/api/grants", &bob, b"").await;
+        assert!(
+            listed.text().contains("Plan.docx") && listed.text().contains("alice"),
+            "{}",
+            listed.text()
+        );
+        let opened = r
+            .call(
+                "GET",
+                &format!("/lore-office/api/shared/alice/{id}"),
+                &bob,
+                b"",
+            )
+            .await;
+        assert_eq!(
+            (
+                opened.status,
+                opened.body.as_slice(),
+                opened.header("x-rights")
+            ),
+            (200, &b"one"[..], Some("view"))
+        );
+        let etag = opened.header("x-etag").unwrap().to_string();
+        let refused = r
+            .call(
+                "PUT",
+                &format!("/lore-office/api/shared/alice/{id}"),
+                &[("x-lore-user", "bob"), ("if-match", &etag)],
+                b"two",
+            )
+            .await;
+        assert_eq!(refused.status, 403);
+        r.call(
+            "POST",
+            &format!("/lore-office/api/docs/{id}/grant?user=bob&rights=edit"),
+            &alice,
+            b"",
+        )
+        .await;
+        let saved = r
+            .call(
+                "PUT",
+                &format!("/lore-office/api/shared/alice/{id}"),
+                &[("x-lore-user", "bob"), ("if-match", &etag)],
+                b"two",
+            )
+            .await;
+        assert_eq!(saved.status, 200, "{}", saved.text());
+        assert_eq!(
+            r.call("GET", &format!("/lore-office/api/docs/{id}"), &alice, b"")
+                .await
+                .body,
+            b"two"
+        );
+        let meta = r
+            .call(
+                "GET",
+                &format!("/lore-office/api/shared/alice/{id}/meta"),
+                &bob,
+                b"",
+            )
+            .await;
+        assert_eq!(field(&meta.text(), "etag"), field(&saved.text(), "etag"));
+        // Others have nothing; alice sees who it is shared with and takes it back.
+        let carol = [("x-lore-user", "carol")];
+        assert_eq!(
+            r.call(
+                "GET",
+                &format!("/lore-office/api/shared/alice/{id}"),
+                &carol,
+                b""
+            )
+            .await
+            .status,
+            404
+        );
+        let grants = r
+            .call(
+                "GET",
+                &format!("/lore-office/api/docs/{id}/grants"),
+                &alice,
+                b"",
+            )
+            .await;
+        assert!(grants.text().contains("bob"));
+        assert_eq!(
+            r.call(
+                "DELETE",
+                &format!("/lore-office/api/docs/{id}/grant?user=bob"),
+                &alice,
+                b""
+            )
+            .await
+            .status,
+            204
+        );
+        assert_eq!(
+            r.call(
+                "GET",
+                &format!("/lore-office/api/shared/alice/{id}"),
+                &bob,
+                b""
+            )
+            .await
+            .status,
+            404
+        );
+    });
+}
