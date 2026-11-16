@@ -177,8 +177,19 @@ impl WarehouseStore {
         format!("/api/v1/files/{storage}/file?path={}", Self::quote(path))
     }
 
-    /// Make the user's storage if it is not there (a 409 means it is).
+    /// Make the user's storage if it is not there.
+    ///
+    /// It is asked for first: only a storage that is missing (a 404) is made, so a save into a storage that exists does not
+    /// depend on how warehouse answers a second request to make it.
     async fn ensure(&self, storage: &str, owner: &str) -> Result<()> {
+        let (status, _) = self
+            .call("GET", &format!("/api/v1/files/{storage}?n=1"), None, "")
+            .await?;
+        match status {
+            200..=299 => return Ok(()),
+            404 => {}
+            s => return Err(Error::Io(format!("warehouse answered {s} for {storage}"))),
+        }
         let body = format!(
             "{{\"name\":{},\"owner\":{},\"quota_bytes\":{}}}",
             json::to_string(storage),
@@ -194,6 +205,7 @@ impl WarehouseStore {
             )
             .await?;
         match status {
+            // A 409 is a storage someone else made a moment ago.
             200..=299 | 409 => Ok(()),
             s => Err(Error::Io(format!(
                 "warehouse would not make the storage {storage} for {owner} ({s}): {}",
@@ -212,7 +224,13 @@ impl WarehouseStore {
         match status {
             200..=299 => Ok(body),
             404 => Err(Error::NotFound),
-            s => Err(Error::Io(format!("warehouse answered {s}"))),
+            s => Err(Error::Io(format!(
+                "warehouse answered {s} reading {storage}/{path}: {}",
+                String::from_utf8_lossy(&body)
+                    .chars()
+                    .take(200)
+                    .collect::<String>()
+            ))),
         }
     }
 
@@ -239,13 +257,13 @@ impl WarehouseStore {
         }
     }
 
-    /// The paths under `prefix`, every page of them. Warehouse answers `{"entries":[{"name","path","kind","size"}]}` and
-    /// pages with `n` and `last` (the previous page's final path).
-    async fn names(&self, storage: &str, prefix: &str) -> Result<Vec<String>> {
-        let mut out: Vec<String> = Vec::new();
+    /// The files under `prefix` with their sizes, every page of them. Warehouse answers
+    /// `{"entries":[{"name","path","kind","size"}]}` and pages with `n` and `last` (the previous page's final path).
+    async fn listing(&self, storage: &str, prefix: &str) -> Result<Vec<(String, u64)>> {
+        let mut out: Vec<(String, u64)> = Vec::new();
         for _ in 0..200 {
             let mut path = format!("/api/v1/files/{storage}?prefix={prefix}&n=1000");
-            if let Some(last) = out.last() {
+            if let Some((last, _)) = out.last() {
                 path = format!("{path}&last={}", Self::quote(last));
             }
             let (status, body) = self.call("GET", &path, None, "").await?;
@@ -256,14 +274,22 @@ impl WarehouseStore {
                 return Err(Error::Io(format!("warehouse answered {status}")));
             }
             let value = json::parse(&String::from_utf8_lossy(&body)).map_err(err)?;
-            let page: Vec<String> = value
+            let page: Vec<(String, u64)> = value
                 .get("entries")
                 .and_then(Value::as_array)
                 .map(|items| {
                     items
                         .iter()
                         .filter(|i| i.get("kind").and_then(Value::as_str) != Some("dir"))
-                        .filter_map(|i| i.get("path").and_then(Value::as_str).map(str::to_string))
+                        .filter_map(|i| {
+                            let path = i.get("path").and_then(Value::as_str)?.to_string();
+                            let size = i
+                                .get("size")
+                                .and_then(Value::as_i64)
+                                .and_then(|n| u64::try_from(n).ok())
+                                .unwrap_or(0);
+                            Some((path, size))
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
@@ -273,6 +299,16 @@ impl WarehouseStore {
             out.extend(page);
         }
         Ok(out)
+    }
+
+    /// The paths under `prefix`.
+    async fn names(&self, storage: &str, prefix: &str) -> Result<Vec<String>> {
+        Ok(self
+            .listing(storage, prefix)
+            .await?
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect())
     }
 
     /// Percent-encoding for a path in a query.
@@ -384,25 +420,18 @@ impl Storage for WarehouseStore {
     }
 
     async fn usage(&self, user: &str) -> Result<Usage> {
+        // What the person keeps is what is under `docs/`, added up from the listing: the answer for one storage carries
+        // no totals (only the list of all storages does, and that is the operator's).
         let storage = Self::storage_of(user);
-        let (status, body) = self
-            .call("GET", &format!("/api/v1/files/{storage}"), None, "")
-            .await?;
-        if status == 404 {
-            return Ok(Usage {
-                used: 0,
-                quota: self.quota,
-            });
-        }
-        let value = json::parse(&String::from_utf8_lossy(&body)).map_err(err)?;
-        let used = value.get("used_bytes").and_then(Value::as_i64).unwrap_or(0);
-        let quota = value
-            .get("quota_bytes")
-            .and_then(Value::as_i64)
-            .unwrap_or(i64::try_from(self.quota).unwrap_or(i64::MAX));
+        let used = self
+            .listing(&storage, "docs/")
+            .await?
+            .iter()
+            .map(|(_, size)| *size)
+            .sum();
         Ok(Usage {
-            used: u64::try_from(used).unwrap_or(0),
-            quota: u64::try_from(quota).unwrap_or(0),
+            used,
+            quota: self.quota,
         })
     }
 

@@ -53,6 +53,8 @@ docs/<id>.bin
 docs/<id>.json
 ```
 
+A save first asks warehouse for the storage (`GET /api/v1/files/{storage}`) and makes it (`POST /api/v1/files`) only when that answers 404. A person's usage is the sizes of the files under `docs/` added up from the listing, since warehouse's answer for one storage carries no totals.
+
 All share links are in one storage, `SHARES_STORAGE` (`lore-office-shares`), as `<token>.json`, so a link is found from its token.
 
 The service uses warehouse's files API with a token it gets from gatehouse (`POST <GATEHOUSE_URL>/api/v1/token`, client credentials): `POST /api/v1/files` makes a storage (`name`, `owner`, `quota_bytes`), `PUT`, `GET` and `DELETE /api/v1/files/{storage}/file?path=` keep a file, `GET /api/v1/files/{storage}?prefix=&n=1000` lists (pages follow with `last`). A refused write over the quota (`413` or `507`) is a quota error to the person.

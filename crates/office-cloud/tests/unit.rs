@@ -207,6 +207,273 @@ fn a_share_link_opens_one_document_and_only_an_edit_link_saves_it() {
     });
 }
 
+/// A small warehouse: the token route of gatehouse, and the files API with dynamic storages (`POST /api/v1/files` makes one and
+/// answers a second request for the same name with a 500, as the live one may; names are checked as warehouse checks them).
+mod fake {
+    use std::collections::HashMap;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+
+    type Files = HashMap<String, HashMap<String, Vec<u8>>>;
+
+    pub struct Warehouse {
+        pub port: u16,
+    }
+
+    fn decode(text: &str) -> String {
+        let bytes = text.as_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' && i + 2 < bytes.len() {
+                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("00");
+                out.push(u8::from_str_radix(hex, 16).unwrap_or(b'?'));
+                i += 3;
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    fn reply(status: u16, body: &[u8]) -> Vec<u8> {
+        let mut out = format!(
+            "HTTP/1.1 {status} X\r\ncontent-length: {}\r\nconnection: close\r\ncontent-type: application/octet-stream\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        out.extend_from_slice(body);
+        out
+    }
+
+    #[allow(
+        clippy::significant_drop_tightening,
+        clippy::too_many_lines,
+        clippy::option_if_let_else
+    )]
+    fn handle(files: &Mutex<Files>, method: &str, target: &str, body: &[u8]) -> Vec<u8> {
+        let (path, query) = target.split_once('?').unwrap_or((target, ""));
+        let param = |key: &str| {
+            query
+                .split('&')
+                .find_map(|p| p.strip_prefix(&format!("{key}=")))
+                .map(decode)
+                .unwrap_or_default()
+        };
+        let mut files = files.lock().unwrap();
+        if method == "POST" && path == "/gate/api/v1/token" {
+            return reply(200, br#"{"access_token":"t","refresh_token":"","token_type":"Bearer","expires_in":900}"#);
+        }
+        let Some(rest) = path.strip_prefix("/wh/api/v1/files") else {
+            return reply(404, b"no route");
+        };
+        if rest.is_empty() && method == "POST" {
+            let text = String::from_utf8_lossy(body).into_owned();
+            let name = text
+                .split("\"name\":\"")
+                .nth(1)
+                .and_then(|r| r.split('"').next())
+                .unwrap_or("")
+                .to_string();
+            if name.is_empty()
+                || !name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            {
+                return reply(
+                    400,
+                    b"storage names may use letters, digits, `-` and `_` only",
+                );
+            }
+            if files.contains_key(&name) {
+                return reply(500, b"could not create the storage");
+            }
+            files.insert(name, HashMap::new());
+            return reply(201, b"{}");
+        }
+        let parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
+        match (method, parts.as_slice()) {
+            ("GET", [storage]) => match files.get(*storage) {
+                None => reply(404, b"no such storage"),
+                Some(map) => {
+                    let prefix = param("prefix");
+                    let last = param("last");
+                    let mut names: Vec<&String> = map
+                        .keys()
+                        .filter(|k| k.starts_with(&prefix) && (last.is_empty() || **k > last))
+                        .collect();
+                    names.sort();
+                    names.truncate(param("n").parse().unwrap_or(1000));
+                    let entries: Vec<String> = names
+                        .iter()
+                        .map(|k| {
+                            format!(
+                                "{{\"name\":\"{k}\",\"path\":\"{k}\",\"kind\":\"file\",\"size\":{}}}",
+                                map[*k].len()
+                            )
+                        })
+                        .collect();
+                    reply(
+                        200,
+                        format!(
+                            "{{\"storage\":\"{storage}\",\"entries\":[{}]}}",
+                            entries.join(",")
+                        )
+                        .as_bytes(),
+                    )
+                }
+            },
+            (m, [storage, "file"]) => {
+                let Some(map) = files.get_mut(*storage) else {
+                    return reply(404, b"no such storage");
+                };
+                let file = param("path");
+                match m {
+                    "PUT" => {
+                        let new = !map.contains_key(&file);
+                        map.insert(file, body.to_vec());
+                        reply(if new { 201 } else { 200 }, b"{}")
+                    }
+                    "GET" => map
+                        .get(&file)
+                        .map_or_else(|| reply(404, b"no such file"), |b| reply(200, b)),
+                    "DELETE" => {
+                        map.remove(&file);
+                        reply(204, b"")
+                    }
+                    _ => reply(405, b""),
+                }
+            }
+            _ => reply(404, b"no route"),
+        }
+    }
+
+    pub fn start() -> Warehouse {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let files: Arc<Mutex<Files>> = Arc::default();
+        let shared = files;
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let files = shared.clone();
+                std::thread::spawn(move || {
+                    let mut data = Vec::new();
+                    let mut chunk = [0_u8; 8192];
+                    let (head_end, length) = loop {
+                        let n = stream.read(&mut chunk).unwrap_or(0);
+                        if n == 0 {
+                            return;
+                        }
+                        data.extend_from_slice(&chunk[..n]);
+                        if let Some(at) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                            let head = String::from_utf8_lossy(&data[..at]).to_lowercase();
+                            let length = head
+                                .lines()
+                                .find_map(|l| l.strip_prefix("content-length:"))
+                                .and_then(|v| v.trim().parse::<usize>().ok())
+                                .unwrap_or(0);
+                            break (at + 4, length);
+                        }
+                    };
+                    while data.len() < head_end + length {
+                        let n = stream.read(&mut chunk).unwrap_or(0);
+                        if n == 0 {
+                            break;
+                        }
+                        data.extend_from_slice(&chunk[..n]);
+                    }
+                    let head = String::from_utf8_lossy(&data[..head_end]).into_owned();
+                    let mut first = head.lines().next().unwrap_or("").split(' ');
+                    let (method, target) = (first.next().unwrap_or(""), first.next().unwrap_or(""));
+                    let response =
+                        handle(&files, method, target, &data[head_end..head_end + length]);
+                    let _ = stream.write_all(&response);
+                });
+            }
+        });
+        Warehouse { port }
+    }
+}
+
+#[quench_test::test]
+fn a_warehouse_store_keeps_documents_and_links_for_a_user_whose_name_has_a_dot_and_saves_again() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let w = fake::start();
+            quench_core::env::set("WAREHOUSE_URL", format!("http://127.0.0.1:{}/wh", w.port));
+            quench_core::env::set("GATEHOUSE_URL", format!("http://127.0.0.1:{}/gate", w.port));
+            quench_core::env::set("WAREHOUSE_CLIENT_ID", "lore-office-warehouse");
+            quench_core::env::set("WAREHOUSE_CLIENT_SECRET", "x");
+            let store = WarehouseStore::from_env().unwrap();
+            let user = "ada.lovelace";
+            // The first save makes the storage; later saves, also through a link, go into it.
+            let first = store
+                .put(user, None, "Plan.docx", "docs", b"one", None)
+                .await
+                .unwrap();
+            let second = store
+                .put(
+                    user,
+                    Some(&first.id),
+                    "Plan.docx",
+                    "docs",
+                    b"two!",
+                    Some(&first.etag),
+                )
+                .await
+                .unwrap();
+            assert_ne!(first.etag, second.etag);
+            assert_eq!(store.get(user, &first.id).await.unwrap().1, b"two!");
+            assert_eq!(store.list(user).await.unwrap().len(), 1);
+            assert!(store.usage(user).await.unwrap().used >= 4);
+            // A link: made by the owner, opened and saved through by someone who is nobody in particular.
+            let share = Share {
+                token: new_id(32),
+                owner: user.to_string(),
+                doc: first.id.clone(),
+                name: "Plan.docx".into(),
+                kind: "docs".into(),
+                rights: Rights::Edit,
+                created: now(),
+                expires: None,
+            };
+            store.put_share(&share).await.unwrap();
+            let (_, meta, bytes) = open_share(&store, &share.token).await.unwrap();
+            assert_eq!(
+                (meta.id.as_str(), bytes.as_slice()),
+                (first.id.as_str(), &b"two!"[..])
+            );
+            let saved = save_share(&store, &share.token, b"three", Some(&meta.etag))
+                .await
+                .unwrap();
+            assert_eq!(saved.size, 5);
+            assert_eq!(store.get(user, &first.id).await.unwrap().1, b"three");
+            assert!(matches!(
+                save_share(&store, &share.token, b"four", Some(&meta.etag)).await,
+                Err(Error::Conflict { .. })
+            ));
+            store.delete(user, &first.id).await.unwrap();
+            assert!(matches!(
+                open_share(&store, &share.token).await,
+                Err(Error::NotFound)
+            ));
+            for key in [
+                "WAREHOUSE_URL",
+                "GATEHOUSE_URL",
+                "WAREHOUSE_CLIENT_ID",
+                "WAREHOUSE_CLIENT_SECRET",
+            ] {
+                quench_core::env::set(key, "");
+            }
+        });
+}
+
 #[quench_test::test]
 fn a_warehouse_storage_has_a_name_of_its_own_for_each_user_and_needs_its_addresses() {
     let a = WarehouseStore::storage_of("alice");
