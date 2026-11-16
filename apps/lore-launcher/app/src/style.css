@@ -1,0 +1,14 @@
+.launcher { min-height: 100%; display: flex; flex-direction: column; }
+.bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 20px; border-bottom: 1px solid var(--office-grid); background: var(--office-head-bg); }
+.brand { font-size: 15px; font-weight: 700; color: var(--office-accent); letter-spacing: 0.02em; }
+.bar-end { display: flex; align-items: center; }
+.home { box-sizing: border-box; width: min(900px, 100%); margin: 0 auto; padding: 56px 20px; }
+.home h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.2; }
+.lede { margin: 0 0 32px; color: var(--office-head-fg); font-size: 15px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+.tile { min-height: 170px; display: flex; flex-direction: column; gap: 6px; padding: 20px; text-decoration: none; color: var(--office-fg); background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 12px; box-shadow: var(--office-shadow); transition: transform 0.12s, border-color 0.12s; }
+.tile:hover, .tile:focus-visible { border-color: var(--office-accent); transform: translateY(-2px); outline: none; }
+.tile-glyph { display: block; width: 56px; height: 56px; }
+.tile-glyph img { display: block; width: 56px; height: 56px; border-radius: 12px; }
+.tile-name { font-size: 17px; font-weight: 600; }
+.tile-what { font-size: 13px; line-height: 1.4; color: var(--office-head-fg); }

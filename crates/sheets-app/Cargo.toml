@@ -1,0 +1,44 @@
+[package]
+name = "sheets-app"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The spreadsheet screen: a grid that builds only the cells in view, a formula bar, selection and keyboard. It does no I/O
+# and knows no host: the browser, the desktop window and the Android app all mount it.
+[lib]
+name = "sheets_app"
+path = "src/lib.rs"
+
+[dependencies]
+office-cloud-ui = { workspace = true }
+office-i18n = { workspace = true }
+office-theme = { workspace = true }
+office-ui = { workspace = true }
+quench-regex = { workspace = true }
+quench-ui = { workspace = true }
+sheets-calc = { workspace = true }
+sheets-chart = { workspace = true }
+sheets-csv = { workspace = true }
+sheets-format = { workspace = true }
+sheets-formula = { workspace = true }
+sheets-model = { workspace = true }
+sheets-print = { workspace = true }
+sheets-ods = { workspace = true }
+sheets-xlsx = { workspace = true }
+sheets-xls = { workspace = true }
+
+[[test]]
+name = "screens"
+path = "tests/screens.rs"
+harness = false
+
+[dev-dependencies]
+quench-pdf = { workspace = true }
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

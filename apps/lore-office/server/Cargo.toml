@@ -1,0 +1,57 @@
+[package]
+name = "lore-office-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+# One service for the whole suite: the launcher at `/`, the apps at `/docs`, `/sheets`, `/notes` and `/pdf`, and the cloud API at
+# `/api` (documents kept per user, share links). Sign-in is gatehouse's, through quench-auth; storage is a directory per user or a
+# warehouse storage per user (`CLOUD_STORAGE`). The apps also run alone, each from its own `apps/lore-*/server`.
+[lib]
+name = "lore_office_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lore-office-server"
+path = "src/main.rs"
+
+[features]
+# The wasm modules of the five apps are built into the binary (`scripts/build-office.sh` does this).
+embed = []
+
+[dependencies]
+docs-app = { workspace = true }
+lore-docs-app = { workspace = true }
+lore-launcher-app = { workspace = true }
+lore-notes-app = { workspace = true }
+lore-pdf-app = { workspace = true }
+lore-sheets-app = { workspace = true }
+notes-app = { workspace = true }
+office-cloud = { workspace = true }
+office-cloud-ui = { workspace = true }
+office-theme = { workspace = true }
+office-ui = { workspace = true }
+pdf-app = { workspace = true }
+quench-auth = { workspace = true }
+quench-core = { workspace = true }
+quench-fullstack = { workspace = true }
+quench-http = { workspace = true }
+quench-log = { workspace = true }
+quench-serde = { workspace = true }
+quench-ui = { workspace = true }
+quench-ui-web = { workspace = true }
+sheets-app = { workspace = true }
+tokio = { workspace = true }
+
+[[test]]
+name = "cloud"
+path = "tests/cloud.rs"
+harness = false
+
+[dev-dependencies]
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

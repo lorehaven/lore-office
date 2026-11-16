@@ -1,0 +1,36 @@
+[package]
+name = "pdf-app"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# lore-pdf, first version: a reader for the text of a PDF (page by page, with search and zoom), and a button that hands the
+# file to the browser's own viewer, which draws the pages. Drawing pages ourselves needs a renderer that does not exist yet.
+[lib]
+name = "pdf_app"
+path = "src/lib.rs"
+
+[dependencies]
+office-cloud-ui = { workspace = true }
+office-i18n = { workspace = true }
+office-theme = { workspace = true }
+office-ui = { workspace = true }
+pdf-edit = { workspace = true }
+quench-pdf = { registry = "ennor", version = "0.1" }
+quench-ui = { workspace = true }
+
+[[test]]
+name = "screens"
+path = "tests/screens.rs"
+harness = false
+
+[dev-dependencies]
+office-i18n = { workspace = true }
+pdf-write = { workspace = true }
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

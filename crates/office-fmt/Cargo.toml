@@ -1,0 +1,28 @@
+[package]
+name = "office-fmt"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "office_fmt"
+path = "src/lib.rs"
+
+[dependencies]
+quench-archive = { workspace = true }
+quench-convert = { workspace = true }
+quench-serde = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+harness = false
+
+[dev-dependencies]
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

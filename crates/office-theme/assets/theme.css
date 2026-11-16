@@ -1,0 +1,93 @@
+/* The theme: --office-* variables. With no choice made the system's scheme decides; html[data-theme] fixes it, and
+   html[data-palette] picks the accent. */
+
+:root {
+  /* The accent of each scheme, from the palette (blue unless chosen). */
+  --pal-light: #1a73e8;
+  --pal-dark: #6ea8fe;
+
+  --office-bg: #fff;
+  --office-fg: #1f2328;
+  --office-grid: #e1e4e8;
+  --office-head-bg: #f6f8fa;
+  --office-head-fg: #57606a;
+  --office-accent: var(--pal-light);
+  --office-error: #c5221f;
+  --office-scroll-track: #f1f3f4;
+  --office-scroll-thumb: #c4c9cf;
+  --office-scroll-thumb-hover: #9aa1a9;
+  --office-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --office-bg: #15181c;
+    --office-fg: #e6e8ea;
+    --office-grid: #2b3138;
+    --office-head-bg: #1c2128;
+    --office-head-fg: #9aa4ae;
+    --office-accent: var(--pal-dark);
+    --office-error: #ff7b72;
+    --office-scroll-track: #1c2128;
+    --office-scroll-thumb: #3b434d;
+    --office-scroll-thumb-hover: #5a6572;
+    --office-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --office-bg: #15181c;
+  --office-fg: #e6e8ea;
+  --office-grid: #2b3138;
+  --office-head-bg: #1c2128;
+  --office-head-fg: #9aa4ae;
+  --office-accent: var(--pal-dark);
+  --office-error: #ff7b72;
+  --office-scroll-track: #1c2128;
+  --office-scroll-thumb: #3b434d;
+  --office-scroll-thumb-hover: #5a6572;
+  --office-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+:root[data-palette="green"] { --pal-light: #1a7f4b; --pal-dark: #4cc38a; }
+:root[data-palette="teal"] { --pal-light: #0e8a7d; --pal-dark: #4fd1c2; }
+:root[data-palette="purple"] { --pal-light: #7048c9; --pal-dark: #b497f2; }
+:root[data-palette="rose"] { --pal-light: #d6275d; --pal-dark: #f77a9f; }
+:root[data-palette="orange"] { --pal-light: #d9560d; --pal-dark: #fb9a5c; }
+
+/* The menu that picks them. */
+.theme-menu { position: relative; }
+.theme-menu > summary { list-style: none; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 4px; cursor: pointer; color: var(--office-head-fg); user-select: none; }
+.theme-menu > summary::-webkit-details-marker { display: none; }
+.theme-menu > summary:hover, .theme-menu[open] > summary { color: var(--office-fg); background: color-mix(in srgb, var(--office-fg) 8%, transparent); }
+.theme-menu > summary:focus-visible { outline: 2px solid var(--office-accent); outline-offset: 1px; }
+.theme-panel { position: absolute; right: 0; top: calc(100% + 4px); z-index: 60; min-width: 220px; padding: 10px; display: flex; flex-direction: column; gap: 10px; background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 8px; box-shadow: var(--office-shadow); }
+.theme-label { margin-bottom: 4px; font-size: 11px; font-weight: 600; color: var(--office-head-fg); }
+.theme-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.theme-mode { min-height: 28px; padding: 0 8px; font: inherit; font-size: 13px; color: var(--office-fg); background: transparent; border: 1px solid var(--office-grid); border-radius: 6px; cursor: pointer; }
+.theme-mode:hover { background: color-mix(in srgb, var(--office-fg) 8%, transparent); }
+:root[data-theme="light"] .theme-mode[data-theme-mode="light"],
+:root[data-theme="dark"] .theme-mode[data-theme-mode="dark"],
+:root:not([data-theme]) .theme-mode[data-theme-mode="system"] { border-color: var(--office-accent); background: color-mix(in srgb, var(--office-accent) 16%, transparent); }
+.theme-palettes { display: flex; flex-wrap: wrap; gap: 8px; }
+.theme-swatch { width: 22px; height: 22px; padding: 0; border: 2px solid transparent; border-radius: 50%; cursor: pointer; background: var(--sw); }
+.theme-swatch[data-theme-palette="blue"] { --sw: #1a73e8; }
+.theme-swatch[data-theme-palette="green"] { --sw: #1a7f4b; }
+.theme-swatch[data-theme-palette="teal"] { --sw: #0e8a7d; }
+.theme-swatch[data-theme-palette="purple"] { --sw: #7048c9; }
+.theme-swatch[data-theme-palette="rose"] { --sw: #d6275d; }
+.theme-swatch[data-theme-palette="orange"] { --sw: #d9560d; }
+.theme-swatch:hover { transform: scale(1.1); }
+:root[data-palette="blue"] .theme-swatch[data-theme-palette="blue"],
+:root[data-palette="green"] .theme-swatch[data-theme-palette="green"],
+:root[data-palette="teal"] .theme-swatch[data-theme-palette="teal"],
+:root[data-palette="purple"] .theme-swatch[data-theme-palette="purple"],
+:root[data-palette="rose"] .theme-swatch[data-theme-palette="rose"],
+:root[data-palette="orange"] .theme-swatch[data-theme-palette="orange"],
+:root:not([data-palette]) .theme-swatch[data-theme-palette="blue"] { border-color: var(--office-fg); }
+.language-picker { min-height: 26px; padding: 0 6px; font: inherit; font-size: 13px; color: var(--office-fg); background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 4px; }
+/* The list a select opens is drawn by the browser: give it the theme's colours too. */
+select, option { color: var(--office-fg); background-color: var(--office-bg); }

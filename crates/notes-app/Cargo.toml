@@ -1,0 +1,40 @@
+[package]
+name = "notes-app"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# lore-notes: a vault of markdown notes with a source editor, a live preview, links between notes, and any note presented as
+# a deck. Host-independent: it draws with quench-ui and talks to the host through its platform (files, downloads, storage
+# is the host's business).
+[lib]
+name = "notes_app"
+path = "src/lib.rs"
+
+[dependencies]
+notes-md = { workspace = true }
+notes-pdf = { workspace = true }
+office-cloud-ui = { workspace = true }
+office-i18n = { workspace = true }
+office-theme = { workspace = true }
+office-ui = { workspace = true }
+quench-archive = { workspace = true }
+quench-html = { workspace = true }
+quench-tex = { workspace = true }
+quench-ui = { workspace = true }
+
+[[test]]
+name = "screens"
+path = "tests/screens.rs"
+harness = false
+
+[dev-dependencies]
+notes-pdf = { workspace = true }
+office-i18n = { workspace = true }
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

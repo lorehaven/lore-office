@@ -1,0 +1,95 @@
+[workspace]
+members = ["crates/*", "apps/lore-sheets/app", "apps/lore-sheets/server", "apps/lore-notes/app", "apps/lore-notes/server", "apps/lore-docs/app", "apps/lore-docs/server", "apps/lore-pdf/app", "apps/lore-pdf/server", "apps/lore-launcher/app", "apps/lore-launcher/server", "apps/lore-office/server"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Paweł Walus <pawel.walus@protonmail.com>"]
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+quench-test = { registry = "ennor", version = "0.1.2" }
+quench-fullstack = { registry = "ennor", version = "0.1" }
+quench-http = { registry = "ennor", version = "0.1" }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "signal", "sync", "time"] }
+quench-ui = { registry = "ennor", version = "0.1" }
+quench-ui-web = { registry = "ennor", version = "0.1" }
+quench-tz = { registry = "ennor", version = "0.1" }
+quench-regex = { registry = "ennor", version = "0.1" }
+quench-core = { registry = "ennor", version = "0.1" }
+quench-archive = { registry = "ennor", version = "0.1" }
+quench-auth = { registry = "ennor", version = "0.4" }
+quench-log = { registry = "ennor", version = "0.1" }
+quench-client = { registry = "ennor", version = "0.2" }
+quench-image = { registry = "ennor", version = "0.1" }
+quench-text = { registry = "ennor", version = "0.1" }
+quench-pdf = { registry = "ennor", version = "0.1" }
+quench-tex = { registry = "ennor", version = "0.1", features = ["typeset"] }
+quench-convert = { registry = "ennor", version = "0.1", default-features = false, features = ["csv", "xml"] }
+quench-html = { registry = "ennor", version = "0.1", default-features = false, features = ["markdown"] }
+quench-serde = { registry = "ennor", version = "0.1" }
+docs-text = { path = "crates/docs-text" }
+docs-print = { path = "crates/docs-print" }
+docs-docx = { path = "crates/docs-docx" }
+docs-md = { path = "crates/docs-md" }
+office-cloud = { path = "crates/office-cloud" }
+office-cloud-ui = { path = "crates/office-cloud-ui" }
+docs-app = { path = "crates/docs-app" }
+notes-pdf = { path = "crates/notes-pdf" }
+notes-md = { path = "crates/notes-md" }
+sheets-model = { path = "crates/sheets-model" }
+sheets-formula = { path = "crates/sheets-formula" }
+sheets-calc = { path = "crates/sheets-calc" }
+sheets-format = { path = "crates/sheets-format" }
+office-i18n = { path = "crates/office-i18n" }
+office-fmt = { path = "crates/office-fmt" }
+office-theme = { path = "crates/office-theme" }
+office-ui = { path = "crates/office-ui" }
+pdf-app = { path = "crates/pdf-app" }
+pdf-write = { path = "crates/pdf-write" }
+pdf-edit = { path = "crates/pdf-edit" }
+sheets-print = { path = "crates/sheets-print" }
+sheets-chart = { path = "crates/sheets-chart" }
+sheets-ods = { path = "crates/sheets-ods" }
+sheets-xls = { path = "crates/sheets-xls" }
+sheets-csv = { path = "crates/sheets-csv" }
+sheets-xlsx = { path = "crates/sheets-xlsx" }
+notes-app = { path = "crates/notes-app" }
+sheets-app = { path = "crates/sheets-app" }
+lore-sheets-app = { path = "apps/lore-sheets/app" }
+lore-notes-app = { path = "apps/lore-notes/app" }
+lore-docs-app = { path = "apps/lore-docs/app" }
+lore-pdf-app = { path = "apps/lore-pdf/app" }
+lore-launcher-app = { path = "apps/lore-launcher/app" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+complexity = { level = "deny", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+multiple_crate_versions = "allow"
+fn_params_excessive_bools = "allow"
+
+# The browser build, as `quench build --release` makes it: small and slow to compile.
+[profile.wasm]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.wasm-dev]
+inherits = "dev"

@@ -1,0 +1,3 @@
+# Read by the `quench` command. Packages are lore-pdf-app, lore-pdf-server and so on.
+name = "lore-pdf"
+template = "web"

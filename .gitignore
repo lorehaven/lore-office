@@ -1,0 +1,6 @@
+/target
+/dist
+/web
+/.run
+# Working notes and plans stay local.
+/plans

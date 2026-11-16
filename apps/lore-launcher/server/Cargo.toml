@@ -1,0 +1,26 @@
+[package]
+name = "lore-launcher-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "lore-launcher-server"
+path = "src/main.rs"
+
+[features]
+# The wasm module is built into the binary (`quench build --release` does this).
+embed = []
+
+[dependencies]
+lore-launcher-app = { workspace = true }
+office-theme = { workspace = true }
+office-ui = { workspace = true }
+quench-fullstack = { workspace = true }
+quench-http = { workspace = true }
+quench-ui-web = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

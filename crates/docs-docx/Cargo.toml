@@ -1,0 +1,31 @@
+[package]
+name = "docs-docx"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# `.docx` <-> docs-text. Reading takes the text, the character styles (bold, italic, underline), headings and list items;
+# anything else in the body (tables, pictures) is simplified and reported. Writing keeps every other part of a file that was
+# read (styles, themes, headers, properties, page setup) and replaces only what the model holds.
+[lib]
+name = "docs_docx"
+path = "src/lib.rs"
+
+[dependencies]
+quench-image = { workspace = true }
+docs-text = { workspace = true }
+office-fmt = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+harness = false
+
+[dev-dependencies]
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

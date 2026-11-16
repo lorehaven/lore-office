@@ -1,0 +1,31 @@
+[package]
+name = "sheets-ods"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# OpenDocument spreadsheets (.ods): cells, formulas, text styles, number formats, sizes and merged cells.
+[lib]
+name = "sheets_ods"
+path = "src/lib.rs"
+
+[dependencies]
+office-fmt = { workspace = true }
+sheets-calc = { workspace = true }
+sheets-format = { workspace = true }
+sheets-formula = { workspace = true }
+sheets-model = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+harness = false
+
+[dev-dependencies]
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

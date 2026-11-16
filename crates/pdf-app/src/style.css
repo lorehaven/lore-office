@@ -1,0 +1,44 @@
+.pdf { display: grid; grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: 100%; outline: none; }
+.sidebar { min-height: 0; padding: 8px; overflow: auto; border-right: 1px solid var(--office-grid); background: var(--office-head-bg); }
+.thumbs { display: flex; flex-direction: column; gap: 2px; }
+.thumb { display: flex; gap: 8px; align-items: baseline; padding: 6px 8px; font: inherit; text-align: left; color: var(--office-fg); background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
+.thumb:hover { background: color-mix(in srgb, var(--office-fg) 8%, transparent); }
+.thumb.active { background: color-mix(in srgb, var(--office-accent) 18%, transparent); }
+.thumb-number { min-width: 2em; font-variant-numeric: tabular-nums; color: var(--office-head-fg); }
+.thumb-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.empty { margin: 8px; color: var(--office-head-fg); font-size: 13px; }
+.reader { min-width: 0; min-height: 0; overflow: auto; padding: 24px 16px 60px; background: var(--office-head-bg); }
+.paper { box-sizing: border-box; width: min(860px, 100%); min-height: 70vh; margin: 0 auto; padding: 48px 56px; background: var(--office-bg); border: 1px solid var(--office-grid); box-shadow: var(--office-shadow); }
+.page-text { margin: 0; font: 15px/1.55 "Liberation Serif", Georgia, serif; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.paper[data-zoom="60"] .page-text { font-size: 9px; }
+.paper[data-zoom="75"] .page-text { font-size: 11.25px; }
+.paper[data-zoom="90"] .page-text { font-size: 13.5px; }
+.paper[data-zoom="115"] .page-text { font-size: 17.25px; }
+.paper[data-zoom="130"] .page-text { font-size: 19.5px; }
+.paper[data-zoom="160"] .page-text { font-size: 24px; }
+.paper[data-zoom="200"] .page-text { font-size: 30px; }
+.paper[data-zoom="250"] .page-text { font-size: 37.5px; }
+mark { color: inherit; background: color-mix(in srgb, #f5c400 45%, transparent); border-radius: 2px; }
+mark.current { background: color-mix(in srgb, #f58a00 70%, transparent); outline: 1px solid #f58a00; }
+.page-counter { min-width: 3.5em; text-align: center; font-variant-numeric: tabular-nums; align-self: center; }
+.jump, .find { box-sizing: border-box; min-height: 26px; padding: 0 6px; font: inherit; font-size: 13px; color: var(--office-fg); background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 4px; }
+.jump { width: 68px; }
+.find { width: 160px; }
+@media (max-width: 800px) { .pdf { grid-template-columns: minmax(0, 1fr); } .sidebar { display: none; } }
+
+.page-image { display: block; margin: 0 auto; max-width: none; height: auto; background: #fff; box-shadow: var(--office-shadow); user-select: none; }
+.paper:has(> .page-wrap) { width: max-content; min-height: 0; padding: 0; border: 0; background: none; box-shadow: none; }
+.page-wrap { position: relative; margin: 0 auto; }
+.text-layer { position: absolute; inset: 0; overflow: hidden; }
+.text-layer .run { position: absolute; display: block; overflow: hidden; white-space: pre; line-height: 1; color: transparent; text-align: justify; text-align-last: justify; font-family: "Liberation Sans", Arial, sans-serif; cursor: text; user-select: text; }
+.text-layer .run::selection { background: rgba(60, 120, 255, 0.35); color: transparent; }
+.text-layer .run.hit { background: rgba(255, 220, 0, 0.45); }
+.text-layer .run.hit.current { background: rgba(255, 140, 0, 0.6); }
+.link-layer { position: absolute; inset: 0; pointer-events: none; }
+.link-layer .link { position: absolute; display: block; pointer-events: auto; cursor: pointer; border-radius: 2px; }
+.link-layer .link:hover { background: rgba(60, 120, 255, 0.18); outline: 1px solid rgba(60, 120, 255, 0.6); }
+.outline .level-1 { padding-left: 14px; } .outline .level-2 { padding-left: 28px; } .outline .level-3 { padding-left: 42px; } .outline .level-4, .outline .level-5, .outline .level-6 { padding-left: 56px; }
+.text-layer .run.pick { cursor: crosshair; }
+.note-field { width: 220px; }
+.page-image.dark { filter: invert(0.9) hue-rotate(180deg); }
+.text-layer .typebox { position: absolute; min-width: 140px; padding: 0 4px; border: 1px solid #3b82f6; background: rgba(255,255,255,0.9); color: #00007a; font-family: "Liberation Sans", Arial, sans-serif; z-index: 2; }

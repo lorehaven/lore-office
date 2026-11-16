@@ -1,0 +1,33 @@
+[package]
+name = "docs-print"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# A document on paper: the text broken into lines and the lines into pages, then written as a PDF. Text is set in the standard
+# PDF fonts; a string with characters they lack is set in an embedded Noto Sans (see pdf-write).
+[lib]
+name = "docs_print"
+path = "src/lib.rs"
+
+[dependencies]
+docs-text = { workspace = true }
+pdf-write = { workspace = true }
+quench-image = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+harness = false
+
+[dev-dependencies]
+docs-docx = { workspace = true }
+docs-md = { workspace = true }
+quench-pdf = { registry = "ennor", version = "0.1" }
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

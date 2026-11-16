@@ -1,0 +1,33 @@
+[package]
+name = "sheets-print"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Lays sheets out on pages and writes them as a PDF: for Export and Print.
+[lib]
+name = "sheets_print"
+path = "src/lib.rs"
+
+[dependencies]
+pdf-write = { workspace = true }
+sheets-chart = { workspace = true }
+sheets-calc = { workspace = true }
+sheets-format = { workspace = true }
+sheets-model = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+harness = false
+
+[dev-dependencies]
+quench-test = { workspace = true }
+quench-pdf = { registry = "ennor", version = "0.1" }
+sheets-formula = { workspace = true }
+
+[lints]
+workspace = true

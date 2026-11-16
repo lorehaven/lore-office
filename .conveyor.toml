@@ -1,0 +1,77 @@
+# Every push to master, and every pull request.
+on = { push = ["master"], pull_request = ["*"] }
+
+[[stage]]
+name = "check"
+
+[[stage.job]]
+name  = "format"
+image = "ossiriand.arda:8080/forge/ci/rust-builder:latest"
+steps = [{ anvil = "format --check" }]
+
+[[stage.job]]
+name    = "lint"
+image   = "ossiriand.arda:8080/forge/ci/rust-builder:latest"
+timeout = 1800
+steps   = [{ anvil = "lint --all-targets --deny-warnings" }]
+
+[[stage.job]]
+name    = "deps"
+image   = "ossiriand.arda:8080/forge/ci/rust-builder:latest"
+timeout = 1800
+steps   = [{ run = "cargo deny check" }, { anvil = "machete" }, { anvil = "audit" }]
+
+[[stage]]
+name  = "build"
+needs = ["check"]
+
+# The pages' wasm modules and the server that serves them.
+[[stage.job]]
+name    = "server"
+image   = "ossiriand.arda:8080/forge/ci/rust-builder:latest"
+timeout = 3600
+steps = [
+    "rustup target add wasm32-unknown-unknown",
+    "bash scripts/web.sh",
+    "cargo build --release -p lore-office-server",
+]
+
+[[stage]]
+name  = "test"
+needs = ["build"]
+
+[[stage.job]]
+name    = "unit"
+image   = "ossiriand.arda:8080/forge/ci/rust-builder:latest"
+timeout = 1800
+steps   = [{ anvil = "test --all" }]
+
+# ---------------------------------------------------------------- release (by hand)
+# Never started by a push or a pull request: run by naming it,
+#   conveyor run lorehaven/lore-office --stage release-image --wait
+# (add `check,build,test` to release only after the tests of the same run pass). Builds the image with a docker daemon
+# beside the steps (a privileged `docker:dind` service, which the deployment must allow for this repository) and pushes it
+# to the registries of `.anvil.toml`. Needs the secrets DOCKER_REGISTRY_USER and DOCKER_REGISTRY_PASSWORD.
+[[stage]]
+name  = "release-image"
+when  = "event == 'release'"
+needs = ["test"]
+
+[[stage.job]]
+name    = "image"
+image   = "ossiriand.arda:8080/forge/ci/rust-builder:latest"
+secrets = ["DOCKER_REGISTRY_USER", "DOCKER_REGISTRY_PASSWORD"]
+timeout = 7200
+env     = { DOCKER_HOST = "tcp://127.0.0.1:2375", DOCKER_REGISTRIES = "ennor.ddns.net ossiriand.arda:8080" }
+steps = [
+  { run = "sh scripts/ci-docker-login.sh" },
+  { anvil = "docker release lore-office-server" },
+]
+
+[[stage.job.service]]
+name       = "dind"
+image      = "docker:dind"
+privileged = true
+env        = { DOCKER_TLS_CERTDIR = "" }
+args       = ["--insecure-registry=ossiriand.arda:8080"]
+ready      = "docker -H tcp://127.0.0.1:2375 info"

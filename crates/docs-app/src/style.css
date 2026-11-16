@@ -1,0 +1,58 @@
+.docs { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); height: 100%; }
+.canvas { overflow: auto; padding: 24px 12px 60px; background: var(--office-head-bg); }
+.page { --pad: clamp(24px, 8vw, 96px); box-sizing: border-box; width: min(794px, 100%); min-height: 1123px; margin: 0 auto; padding: 96px var(--pad); overflow-x: clip; outline: none; background: var(--office-bg); color: var(--office-fg); border: 1px solid var(--office-grid); box-shadow: var(--office-shadow); font: 16px/1.5 "Liberation Serif", Georgia, serif; white-space: pre-wrap; overflow-wrap: anywhere; display: grid; grid-template-columns: repeat(840, minmax(0, 1fr)); align-content: start; }
+.page > * { grid-column: 1 / -1; }
+.page > .cell { margin: 0; padding: 4px 6px; min-height: 1.5em; border-right: 1px solid var(--office-grid); border-bottom: 1px solid var(--office-grid); }
+.page > .cell.r0 { border-top: 1px solid var(--office-grid); }
+.page > .cell.c0 { border-left: 1px solid var(--office-grid); }
+.page > .cell + :not(.cell) { margin-top: 0.6em; }
+.page p, .page h1, .page h2, .page h3 { margin: 0 0 0.6em; }
+.page h1 { font-size: 2em; line-height: 1.2; }
+.page h2 { font-size: 1.5em; line-height: 1.25; }
+.page h3 { font-size: 1.2em; }
+.page .b { font-weight: 700; }
+.page .i { font-style: italic; }
+.page .u { text-decoration: underline; }
+.page .s { text-decoration: line-through; }
+.page .u.s { text-decoration: underline line-through; }
+.page .sup { vertical-align: super; font-size: 0.65em; }
+.page .sub { vertical-align: sub; font-size: 0.65em; }
+.page .lk { color: var(--office-accent); text-decoration: underline; cursor: pointer; }
+.page .li { position: relative; padding-left: 1.8em; }
+.page .li::before { content: attr(data-marker); position: absolute; left: 0; width: 1.5em; text-align: right; }
+.page .ac { text-align: center; }
+.page .ar { text-align: right; }
+.page .aj { text-align: justify; }
+.tool-select { min-height: 26px; font: inherit; font-size: 13px; color: var(--office-fg); background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 4px; }
+.tool-color { width: 30px; height: 26px; padding: 0; border: 1px solid var(--office-grid); background: var(--office-bg); cursor: pointer; }
+.tool.bold { font-weight: 700; }
+.tool.italic { font-style: italic; font-family: Georgia, serif; }
+.tool.underline { text-decoration: underline; }
+
+.findbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--office-grid); background: var(--office-head-bg); }
+.find-field { box-sizing: border-box; width: 180px; min-height: 28px; padding: 0 8px; font: inherit; font-size: 13px; color: var(--office-fg); background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 4px; }
+.find-field:focus { outline: 2px solid var(--office-accent); outline-offset: -1px; }
+.findbar .check { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.sheets { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+.sheet { position: relative; flex: none; overflow: hidden; background: #fff; color: #000; box-shadow: var(--office-shadow); }
+.piece { position: absolute; white-space: pre; line-height: 1; user-select: text; }
+.piece.u { text-decoration: underline; }
+.piece.s { text-decoration: line-through; }
+.piece.u.s { text-decoration: underline line-through; }
+.link-field { width: 320px; }
+.rule { position: absolute; background: #808080; }
+.page > .pic { margin: 0 0 0.6em; line-height: 0; }
+.page > .pic img { display: inline-block; max-width: 100%; height: auto; }
+.page > .pic.al { text-align: left; }
+.sheet img.piece { max-width: none; }
+.page > .pb { border-top: 2px dashed var(--office-grid); padding-top: 0.6em; margin-top: 1.2em; }
+.findbar .hint { font-size: 12px; opacity: 0.7; font-family: ui-monospace, monospace; }
+.hf-field { width: 260px; }
+.zoom-tools { display: inline-flex; gap: 2px; align-items: center; }
+.page h4 { font-size: 1.1em; } .page h5 { font-size: 1.05em; } .page h6 { font-size: 1em; font-style: italic; }
+
+/* Where a sheet ends and the next begins: the foot margin, a band of the desk between, and the head margin of the next sheet.
+   The paragraph a page starts at carries it (the print layout says which). */
+.page > .newpage { position: relative; margin-top: calc(96px + 28px + 96px); }
+.page > .newpage::before { content: ""; position: absolute; left: -2000px; right: -2000px; top: calc(-96px - 28px); height: 28px; background: var(--office-head-bg); box-shadow: inset 0 6px 6px -6px rgba(0, 0, 0, 0.3), inset 0 -6px 6px -6px rgba(0, 0, 0, 0.3); pointer-events: none; }
+.page > .pb.newpage { border-top: 0; padding-top: 0; margin-top: calc(96px + 28px + 96px); }

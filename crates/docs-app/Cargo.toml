@@ -1,0 +1,41 @@
+[package]
+name = "docs-app"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# lore-docs, so far a spike of the editor: a text surface the browser edits only through our model (typing, deleting,
+# pasting, formatting, undo, selection, and input methods), drawn again after each change. Host-independent.
+[lib]
+name = "docs_app"
+path = "src/lib.rs"
+
+[dependencies]
+docs-docx = { workspace = true }
+docs-md = { workspace = true }
+docs-print = { workspace = true }
+pdf-write = { workspace = true }
+docs-text = { workspace = true }
+office-fmt = { workspace = true }
+office-cloud-ui = { workspace = true }
+office-i18n = { workspace = true }
+office-theme = { workspace = true }
+office-ui = { workspace = true }
+quench-core = { workspace = true }
+quench-image = { workspace = true }
+quench-ui = { workspace = true }
+
+[[test]]
+name = "screens"
+path = "tests/screens.rs"
+harness = false
+
+[dev-dependencies]
+office-i18n = { workspace = true }
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

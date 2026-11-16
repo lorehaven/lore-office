@@ -1,0 +1,30 @@
+[package]
+name = "office-theme"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The look of the lore apps, apart from any one of them: light, dark or the system's, six palettes, the menu that picks them
+# and the language picker. Colours are CSS variables (`--office-*`), set by `html[data-theme]` and `html[data-palette]`; a
+# small script keeps those in step with the browser's storage. It knows nothing of documents and depends on nothing but
+# `quench-ui`.
+[lib]
+name = "office_theme"
+path = "src/lib.rs"
+
+[dependencies]
+quench-ui = { workspace = true }
+
+[[test]]
+name = "screens"
+path = "tests/screens.rs"
+harness = false
+
+[dev-dependencies]
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

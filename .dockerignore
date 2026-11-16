@@ -1,0 +1,10 @@
+*
+!apps/
+!crates/
+!scripts/
+!Cargo.toml
+!Cargo.lock
+!.cargo/
+!deny.toml
+apps/*/dist
+apps/*/server/target

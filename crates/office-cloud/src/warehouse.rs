@@ -1,0 +1,449 @@
+#![allow(
+    clippy::significant_drop_tightening,
+    clippy::case_sensitive_file_extension_comparisons,
+    clippy::or_fun_call
+)]
+//! The same storage on a warehouse: one dynamic storage per user, made the first time the user saves.
+//!
+//! Warehouse's files API: `POST /api/v1/files` makes a storage (`name`, `owner`, `quota_bytes`), `PUT|GET|DELETE
+//! /api/v1/files/{storage}/file?path=` keep files, `GET /api/v1/files/{storage}?prefix=` lists them. Documents are `docs/<id>.bin`
+//! and `docs/<id>.json`; links are in one storage of their own, `shares/<token>.json`, so a link can be found from its token
+//! alone. The calls are made as the service's own machine identity (a gatehouse client with `warehouse:write`); which user
+//! may touch which storage is decided here, by the name of the storage, never by what the caller asks for.
+
+use crate::model::{DEFAULT_QUOTA_BYTES, DocMeta, Error, Share, Usage, new_id, now, safe_name};
+use crate::{Result, Storage};
+use quench_client::transport::Client;
+use quench_core::async_trait;
+use quench_serde::{Value, json};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+#[derive(Debug)]
+struct Token {
+    value: String,
+    until: std::time::Instant,
+}
+
+/// The warehouse behind the cloud.
+#[derive(Debug, Clone)]
+pub struct WarehouseStore {
+    http: Client,
+    /// `https://host/warehouse`
+    base: String,
+    token_url: String,
+    client_id: String,
+    client_secret: String,
+    quota: u64,
+    shares_storage: String,
+    token: Arc<Mutex<Option<Token>>>,
+}
+
+fn err(e: impl std::fmt::Display) -> Error {
+    Error::Io(e.to_string())
+}
+
+fn etag_of(bytes: &[u8]) -> String {
+    format!(
+        "{:08x}-{}",
+        quench_archive::checksum::crc32(bytes),
+        bytes.len()
+    )
+}
+
+impl WarehouseStore {
+    /// From the environment: `WAREHOUSE_URL`, `GATEHOUSE_URL`, `WAREHOUSE_CLIENT_ID` / `WAREHOUSE_CLIENT_SECRET`, and
+    /// `USER_QUOTA_BYTES` (10 GiB).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Invalid`] when an address is missing; [`Error::Io`] when the client cannot be made.
+    pub fn from_env() -> Result<Self> {
+        let get = |k: &str| quench_core::env::get_or(k, "");
+        let (base, gate) = (get("WAREHOUSE_URL"), get("GATEHOUSE_URL"));
+        if base.is_empty() || gate.is_empty() {
+            return Err(Error::Invalid(
+                "WAREHOUSE_URL and GATEHOUSE_URL are needed".into(),
+            ));
+        }
+        Ok(Self {
+            http: Client::builder().build().map_err(err)?,
+            base: base.trim_end_matches('/').to_string(),
+            token_url: format!("{}/api/v1/token", gate.trim_end_matches('/')),
+            client_id: get("WAREHOUSE_CLIENT_ID"),
+            client_secret: get("WAREHOUSE_CLIENT_SECRET"),
+            quota: get("USER_QUOTA_BYTES")
+                .parse()
+                .unwrap_or(DEFAULT_QUOTA_BYTES),
+            shares_storage: safe_name(&quench_core::env::get_or(
+                "SHARES_STORAGE",
+                "lore-office-shares",
+            )),
+            token: Arc::new(Mutex::new(None)),
+        })
+    }
+
+    /// The name of a user's storage.
+    #[must_use]
+    pub fn storage_of(user: &str) -> String {
+        format!(
+            "lore-{}-{:08x}",
+            safe_name(user).to_lowercase(),
+            quench_archive::checksum::crc32(user.as_bytes())
+        )
+    }
+
+    async fn bearer(&self) -> Result<String> {
+        let mut guard = self.token.lock().await;
+        if let Some(t) = guard.as_ref()
+            && t.until > std::time::Instant::now()
+        {
+            return Ok(t.value.clone());
+        }
+        let form = format!(
+            "grant_type=client_credentials&client_id={}&client_secret={}",
+            self.client_id, self.client_secret
+        );
+        let res = self
+            .http
+            .post(&self.token_url)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(form.into_bytes())
+            .send()
+            .await
+            .map_err(err)?;
+        if !res.status().is_success() {
+            return Err(Error::Io(format!("gatehouse answered {}", res.status())));
+        }
+        let body = res.text().await.map_err(err)?;
+        let value = json::parse(&body).map_err(err)?;
+        let access = value
+            .get("access_token")
+            .and_then(Value::as_str)
+            .ok_or_else(|| Error::Io("no access token".into()))?
+            .to_string();
+        let secs = value
+            .get("expires_in")
+            .and_then(Value::as_i64)
+            .unwrap_or(300)
+            .max(60);
+        *guard = Some(Token {
+            value: access.clone(),
+            until: std::time::Instant::now()
+                + std::time::Duration::from_secs(u64::try_from(secs - 30).unwrap_or(30)),
+        });
+        Ok(access)
+    }
+
+    async fn call(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Vec<u8>>,
+        content_type: &str,
+    ) -> Result<(u16, Vec<u8>)> {
+        let token = self.bearer().await?;
+        let url = format!("{}{path}", self.base);
+        let mut req = match method {
+            "GET" => self.http.get(&url),
+            "PUT" => self.http.put(&url),
+            "POST" => self.http.post(&url),
+            _ => self.http.delete(&url),
+        }
+        .bearer_auth(token);
+        if let Some(b) = body {
+            req = req.header("content-type", content_type).body(b);
+        }
+        let res = req.send().await.map_err(err)?;
+        let status = res.status().as_u16();
+        let bytes = res.bytes().await.map_err(err)?.to_vec();
+        Ok((status, bytes))
+    }
+
+    fn file_path(storage: &str, path: &str) -> String {
+        format!("/api/v1/files/{storage}/file?path={}", Self::quote(path))
+    }
+
+    /// Make the user's storage if it is not there (a 409 means it is).
+    async fn ensure(&self, storage: &str, owner: &str) -> Result<()> {
+        let body = format!(
+            "{{\"name\":{},\"owner\":{},\"quota_bytes\":{}}}",
+            json::to_string(storage),
+            json::to_string(owner),
+            self.quota
+        );
+        let (status, _) = self
+            .call(
+                "POST",
+                "/api/v1/files",
+                Some(body.into_bytes()),
+                "application/json",
+            )
+            .await?;
+        match status {
+            200..=299 | 409 => Ok(()),
+            s => Err(Error::Io(format!(
+                "warehouse would not make the storage ({s})"
+            ))),
+        }
+    }
+
+    async fn read(&self, storage: &str, path: &str) -> Result<Vec<u8>> {
+        let (status, body) = self
+            .call("GET", &Self::file_path(storage, path), None, "")
+            .await?;
+        match status {
+            200..=299 => Ok(body),
+            404 => Err(Error::NotFound),
+            s => Err(Error::Io(format!("warehouse answered {s}"))),
+        }
+    }
+
+    async fn write(&self, storage: &str, path: &str, bytes: Vec<u8>) -> Result<()> {
+        let (status, body) = self
+            .call(
+                "PUT",
+                &Self::file_path(storage, path),
+                Some(bytes),
+                "application/octet-stream",
+            )
+            .await?;
+        match status {
+            200..=299 => Ok(()),
+            // Warehouse refuses what is over the quota with 413 or 507.
+            413 | 507 => Err(Error::Quota {
+                used: 0,
+                quota: self.quota,
+            }),
+            s => Err(Error::Io(format!(
+                "warehouse answered {s}: {}",
+                String::from_utf8_lossy(&body)
+            ))),
+        }
+    }
+
+    /// The paths under `prefix`, every page of them. Warehouse answers `{"entries":[{"name","path","kind","size"}]}` and
+    /// pages with `n` and `last` (the previous page's final path).
+    async fn names(&self, storage: &str, prefix: &str) -> Result<Vec<String>> {
+        let mut out: Vec<String> = Vec::new();
+        for _ in 0..200 {
+            let mut path = format!("/api/v1/files/{storage}?prefix={prefix}&n=1000");
+            if let Some(last) = out.last() {
+                path = format!("{path}&last={}", Self::quote(last));
+            }
+            let (status, body) = self.call("GET", &path, None, "").await?;
+            if status == 404 {
+                return Ok(Vec::new());
+            }
+            if !(200..300).contains(&status) {
+                return Err(Error::Io(format!("warehouse answered {status}")));
+            }
+            let value = json::parse(&String::from_utf8_lossy(&body)).map_err(err)?;
+            let page: Vec<String> = value
+                .get("entries")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter(|i| i.get("kind").and_then(Value::as_str) != Some("dir"))
+                        .filter_map(|i| i.get("path").and_then(Value::as_str).map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if page.is_empty() {
+                break;
+            }
+            out.extend(page);
+        }
+        Ok(out)
+    }
+
+    /// Percent-encoding for a path in a query.
+    fn quote(path: &str) -> String {
+        path.bytes()
+            .map(|b| {
+                if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'/') {
+                    char::from(b).to_string()
+                } else {
+                    format!("%{b:02X}")
+                }
+            })
+            .collect()
+    }
+}
+
+#[async_trait]
+impl Storage for WarehouseStore {
+    async fn list(&self, user: &str) -> Result<Vec<DocMeta>> {
+        let storage = Self::storage_of(user);
+        let mut out = Vec::new();
+        for path in self.names(&storage, "docs/").await? {
+            if path.ends_with(".json")
+                && let Ok(bytes) = self.read(&storage, &path).await
+                && let Ok(meta) = json::from_str::<DocMeta>(&String::from_utf8_lossy(&bytes))
+            {
+                out.push(meta);
+            }
+        }
+        out.sort_by(|a, b| b.modified.cmp(&a.modified).then(a.name.cmp(&b.name)));
+        Ok(out)
+    }
+
+    async fn get(&self, user: &str, id: &str) -> Result<(DocMeta, Vec<u8>)> {
+        if !id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(Error::Invalid("a document id is hexadecimal".into()));
+        }
+        let storage = Self::storage_of(user);
+        let meta: DocMeta = json::from_str(&String::from_utf8_lossy(
+            &self.read(&storage, &format!("docs/{id}.json")).await?,
+        ))
+        .map_err(err)?;
+        let bytes = self.read(&storage, &format!("docs/{id}.bin")).await?;
+        Ok((meta, bytes))
+    }
+
+    async fn put(
+        &self,
+        user: &str,
+        id: Option<&str>,
+        name: &str,
+        kind: &str,
+        bytes: &[u8],
+        if_match: Option<&str>,
+    ) -> Result<DocMeta> {
+        if !matches!(kind, "docs" | "sheets" | "notes" | "pdf") {
+            return Err(Error::Invalid("kind is docs, sheets, notes or pdf".into()));
+        }
+        let storage = Self::storage_of(user);
+        self.ensure(&storage, user).await?;
+        let id = match id {
+            Some(id) => {
+                let (old, _) = self.get(user, id).await?;
+                if let Some(want) = if_match
+                    && want != old.etag
+                {
+                    return Err(Error::Conflict { etag: old.etag });
+                }
+                id.to_string()
+            }
+            None => new_id(8),
+        };
+        let meta = DocMeta {
+            id: id.clone(),
+            name: name.trim().to_string(),
+            kind: kind.to_string(),
+            size: bytes.len() as u64,
+            modified: now(),
+            etag: etag_of(bytes),
+        };
+        self.write(&storage, &format!("docs/{id}.bin"), bytes.to_vec())
+            .await?;
+        self.write(
+            &storage,
+            &format!("docs/{id}.json"),
+            json::to_string(&meta).into_bytes(),
+        )
+        .await?;
+        Ok(meta)
+    }
+
+    async fn delete(&self, user: &str, id: &str) -> Result<()> {
+        let storage = Self::storage_of(user);
+        self.get(user, id).await?;
+        for path in [format!("docs/{id}.bin"), format!("docs/{id}.json")] {
+            let (status, _) = self
+                .call("DELETE", &Self::file_path(&storage, &path), None, "")
+                .await?;
+            if !(200..300).contains(&status) && status != 404 {
+                return Err(Error::Io(format!("warehouse answered {status}")));
+            }
+        }
+        for share in self.shares_of(user).await? {
+            if share.doc == id {
+                let _ = self.delete_share(user, &share.token).await;
+            }
+        }
+        Ok(())
+    }
+
+    async fn usage(&self, user: &str) -> Result<Usage> {
+        let storage = Self::storage_of(user);
+        let (status, body) = self
+            .call("GET", &format!("/api/v1/files/{storage}"), None, "")
+            .await?;
+        if status == 404 {
+            return Ok(Usage {
+                used: 0,
+                quota: self.quota,
+            });
+        }
+        let value = json::parse(&String::from_utf8_lossy(&body)).map_err(err)?;
+        let used = value.get("used_bytes").and_then(Value::as_i64).unwrap_or(0);
+        let quota = value
+            .get("quota_bytes")
+            .and_then(Value::as_i64)
+            .unwrap_or(i64::try_from(self.quota).unwrap_or(i64::MAX));
+        Ok(Usage {
+            used: u64::try_from(used).unwrap_or(0),
+            quota: u64::try_from(quota).unwrap_or(0),
+        })
+    }
+
+    async fn put_share(&self, share: &Share) -> Result<()> {
+        self.get(&share.owner, &share.doc).await?;
+        self.ensure(&self.shares_storage, "admin").await.ok();
+        self.write(
+            &self.shares_storage,
+            &format!("{}.json", share.token),
+            json::to_string(share).into_bytes(),
+        )
+        .await
+    }
+
+    async fn share(&self, token: &str) -> Result<Share> {
+        if token.len() != 64 || !token.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(Error::NotFound);
+        }
+        json::from_str(&String::from_utf8_lossy(
+            &self
+                .read(&self.shares_storage, &format!("{token}.json"))
+                .await?,
+        ))
+        .map_err(err)
+    }
+
+    async fn shares_of(&self, user: &str) -> Result<Vec<Share>> {
+        let mut out = Vec::new();
+        for path in self.names(&self.shares_storage, "").await? {
+            if path.ends_with(".json")
+                && let Ok(bytes) = self.read(&self.shares_storage, &path).await
+                && let Ok(share) = json::from_str::<Share>(&String::from_utf8_lossy(&bytes))
+                && share.owner == user
+            {
+                out.push(share);
+            }
+        }
+        out.sort_by_key(|a| std::cmp::Reverse(a.created));
+        Ok(out)
+    }
+
+    async fn delete_share(&self, user: &str, token: &str) -> Result<()> {
+        let share = self.share(token).await?;
+        if share.owner != user {
+            return Err(Error::NotFound);
+        }
+        let (status, _) = self
+            .call(
+                "DELETE",
+                &Self::file_path(&self.shares_storage, &format!("{token}.json")),
+                None,
+                "",
+            )
+            .await?;
+        if (200..300).contains(&status) {
+            Ok(())
+        } else {
+            Err(Error::Io(format!("warehouse answered {status}")))
+        }
+    }
+}

@@ -1,0 +1,30 @@
+[package]
+name = "pdf-edit"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Page operations on PDF files: a new file made of chosen pages of others, in a chosen order and turn (merge, split, extract,
+# delete, reorder, rotate are all that). What a page shows (its content, fonts, images, links) is copied byte for byte; the
+# document-level parts (outline, form fields, metadata) are not carried over.
+[lib]
+name = "pdf_edit"
+path = "src/lib.rs"
+
+[dependencies]
+pdf-write = { workspace = true }
+quench-pdf = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+harness = false
+
+[dev-dependencies]
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

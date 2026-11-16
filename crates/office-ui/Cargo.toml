@@ -1,0 +1,28 @@
+[package]
+name = "office-ui"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# What the lore apps share on screen: the theme and scrollbars, the ribbon (title bar, labelled groups of tools) and
+# drop-down menus. No document knowledge: each app builds its own groups and menus from these.
+[lib]
+name = "office_ui"
+path = "src/lib.rs"
+
+[dependencies]
+quench-ui = { workspace = true }
+
+[[test]]
+name = "screens"
+path = "tests/screens.rs"
+harness = false
+
+[dev-dependencies]
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,233 @@
+//! A directory per user, with a quota.
+
+use crate::model::{DEFAULT_QUOTA_BYTES, DocMeta, Error, Share, Usage, new_id, now, safe_name};
+use crate::{Result, Storage};
+use quench_core::async_trait;
+use quench_serde::json;
+use std::path::PathBuf;
+
+/// Documents and shares in a directory: `users/<user>/<id>.bin` and `<id>.json` beside it, and `shares/<token>.json`.
+#[derive(Clone, Debug)]
+pub struct LocalStore {
+    root: PathBuf,
+    quota: u64,
+}
+
+fn io(e: &std::io::Error) -> Error {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        Error::NotFound
+    } else {
+        Error::Io(e.to_string())
+    }
+}
+
+fn etag_of(bytes: &[u8]) -> String {
+    format!(
+        "{:08x}-{}",
+        quench_archive::checksum::crc32(bytes),
+        bytes.len()
+    )
+}
+
+impl LocalStore {
+    /// A store under `root` (made when needed) that lets each user keep `quota` bytes.
+    #[must_use]
+    pub fn new(root: impl Into<PathBuf>, quota: u64) -> Self {
+        Self {
+            root: root.into(),
+            quota,
+        }
+    }
+
+    /// As [`LocalStore::new`] with the default quota, or `USER_QUOTA_BYTES` from the environment.
+    #[must_use]
+    pub fn from_env(root: impl Into<PathBuf>) -> Self {
+        let quota = quench_core::env::get_or("USER_QUOTA_BYTES", "")
+            .parse()
+            .unwrap_or(DEFAULT_QUOTA_BYTES);
+        Self::new(root, quota)
+    }
+
+    /// The directory of a user: a safe form of the name and a checksum of the real one, so two names never meet.
+    fn user_dir(&self, user: &str) -> PathBuf {
+        let tag = quench_archive::checksum::crc32(user.as_bytes());
+        self.root
+            .join("users")
+            .join(format!("{}-{tag:08x}", safe_name(user)))
+    }
+
+    fn check_id(id: &str) -> Result<()> {
+        if !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_hexdigit()) {
+            Ok(())
+        } else {
+            Err(Error::Invalid("a document id is hexadecimal".into()))
+        }
+    }
+
+    fn read_meta(dir: &std::path::Path, id: &str) -> Result<DocMeta> {
+        let text = std::fs::read_to_string(dir.join(format!("{id}.json"))).map_err(|e| io(&e))?;
+        json::from_str(&text).map_err(|e| Error::Io(e.to_string()))
+    }
+
+    fn used(dir: &std::path::Path) -> u64 {
+        std::fs::read_dir(dir).map_or(0, |d| {
+            d.filter_map(std::result::Result::ok)
+                .filter(|e| e.path().extension().is_some_and(|x| x == "bin"))
+                .filter_map(|e| e.metadata().ok())
+                .map(|m| m.len())
+                .sum()
+        })
+    }
+
+    fn share_path(&self, token: &str) -> Result<PathBuf> {
+        if token.len() == 64 && token.chars().all(|c| c.is_ascii_hexdigit()) {
+            Ok(self.root.join("shares").join(format!("{token}.json")))
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+}
+
+#[async_trait]
+impl Storage for LocalStore {
+    async fn list(&self, user: &str) -> Result<Vec<DocMeta>> {
+        let dir = self.user_dir(user);
+        let mut out = Vec::new();
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return Ok(out);
+        };
+        for e in entries.filter_map(std::result::Result::ok) {
+            let path = e.path();
+            if path.extension().is_some_and(|x| x == "json")
+                && let Some(id) = path.file_stem().and_then(|s| s.to_str())
+                && let Ok(meta) = Self::read_meta(&dir, id)
+            {
+                out.push(meta);
+            }
+        }
+        out.sort_by(|a, b| b.modified.cmp(&a.modified).then(a.name.cmp(&b.name)));
+        Ok(out)
+    }
+
+    async fn get(&self, user: &str, id: &str) -> Result<(DocMeta, Vec<u8>)> {
+        Self::check_id(id)?;
+        let dir = self.user_dir(user);
+        let meta = Self::read_meta(&dir, id)?;
+        let bytes = std::fs::read(dir.join(format!("{id}.bin"))).map_err(|e| io(&e))?;
+        Ok((meta, bytes))
+    }
+
+    async fn put(
+        &self,
+        user: &str,
+        id: Option<&str>,
+        name: &str,
+        kind: &str,
+        bytes: &[u8],
+        if_match: Option<&str>,
+    ) -> Result<DocMeta> {
+        if !matches!(kind, "docs" | "sheets" | "notes" | "pdf") {
+            return Err(Error::Invalid("kind is docs, sheets, notes or pdf".into()));
+        }
+        let name = name.trim();
+        if name.is_empty() || name.len() > 200 {
+            return Err(Error::Invalid("a name of 1 to 200 characters".into()));
+        }
+        let dir = self.user_dir(user);
+        std::fs::create_dir_all(&dir).map_err(|e| io(&e))?;
+        let (id, before) = match id {
+            Some(id) => {
+                Self::check_id(id)?;
+                let old = Self::read_meta(&dir, id)?;
+                if let Some(want) = if_match
+                    && want != old.etag
+                {
+                    return Err(Error::Conflict { etag: old.etag });
+                }
+                (id.to_string(), old.size)
+            }
+            None => (new_id(8), 0),
+        };
+        let used = Self::used(&dir).saturating_sub(before);
+        if used + bytes.len() as u64 > self.quota {
+            return Err(Error::Quota {
+                used,
+                quota: self.quota,
+            });
+        }
+        let meta = DocMeta {
+            id: id.clone(),
+            name: name.to_string(),
+            kind: kind.to_string(),
+            size: bytes.len() as u64,
+            modified: now(),
+            etag: etag_of(bytes),
+        };
+        // The bytes first, under a name of their own, then in place: a failure part way leaves the old document whole.
+        let tmp = dir.join(format!("{id}.tmp"));
+        std::fs::write(&tmp, bytes).map_err(|e| io(&e))?;
+        std::fs::rename(&tmp, dir.join(format!("{id}.bin"))).map_err(|e| io(&e))?;
+        std::fs::write(dir.join(format!("{id}.json")), json::to_string(&meta))
+            .map_err(|e| io(&e))?;
+        Ok(meta)
+    }
+
+    async fn delete(&self, user: &str, id: &str) -> Result<()> {
+        Self::check_id(id)?;
+        let dir = self.user_dir(user);
+        Self::read_meta(&dir, id)?;
+        std::fs::remove_file(dir.join(format!("{id}.bin"))).map_err(|e| io(&e))?;
+        std::fs::remove_file(dir.join(format!("{id}.json"))).map_err(|e| io(&e))?;
+        // The links to it go with it.
+        for share in self.shares_of(user).await? {
+            if share.doc == id {
+                let _ = self.delete_share(user, &share.token).await;
+            }
+        }
+        Ok(())
+    }
+
+    async fn usage(&self, user: &str) -> Result<Usage> {
+        Ok(Usage {
+            used: Self::used(&self.user_dir(user)),
+            quota: self.quota,
+        })
+    }
+
+    async fn put_share(&self, share: &Share) -> Result<()> {
+        let path = self.share_path(&share.token)?;
+        Self::read_meta(&self.user_dir(&share.owner), &share.doc)?;
+        std::fs::create_dir_all(path.parent().unwrap_or(&self.root)).map_err(|e| io(&e))?;
+        std::fs::write(path, json::to_string(share)).map_err(|e| io(&e))
+    }
+
+    async fn share(&self, token: &str) -> Result<Share> {
+        let text = std::fs::read_to_string(self.share_path(token)?).map_err(|e| io(&e))?;
+        json::from_str(&text).map_err(|e| Error::Io(e.to_string()))
+    }
+
+    async fn shares_of(&self, user: &str) -> Result<Vec<Share>> {
+        let mut out = Vec::new();
+        let Ok(entries) = std::fs::read_dir(self.root.join("shares")) else {
+            return Ok(out);
+        };
+        for e in entries.filter_map(std::result::Result::ok) {
+            if let Ok(text) = std::fs::read_to_string(e.path())
+                && let Ok(share) = json::from_str::<Share>(&text)
+                && share.owner == user
+            {
+                out.push(share);
+            }
+        }
+        out.sort_by_key(|a| std::cmp::Reverse(a.created));
+        Ok(out)
+    }
+
+    async fn delete_share(&self, user: &str, token: &str) -> Result<()> {
+        let share = self.share(token).await?;
+        if share.owner != user {
+            return Err(Error::NotFound);
+        }
+        std::fs::remove_file(self.share_path(token)?).map_err(|e| io(&e))
+    }
+}

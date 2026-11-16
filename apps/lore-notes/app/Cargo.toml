@@ -1,0 +1,21 @@
+[package]
+name = "lore-notes-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "lore_notes_app"
+path = "src/lib.rs"
+# `cdylib` is the module the browser loads; `rlib` is what the server renders pages from.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+office-cloud-ui = { workspace = true }
+notes-app = { workspace = true }
+quench-ui = { workspace = true }
+quench-ui-web = { workspace = true }
+
+[lints]
+workspace = true

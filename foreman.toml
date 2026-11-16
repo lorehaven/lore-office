@@ -1,0 +1,56 @@
+# The local estate for lore-office.
+#
+#   foreman                  build the pages' modules and the server, start it
+#   foreman stop             stop it
+#   foreman status           what is up, and on which port
+#   foreman logs lore-office follow its log
+#   foreman run web          rebuild the pages' modules by hand
+#
+# Without gatehouse (the default here) everyone is one local person and the documents are kept under .run/data. To try
+# signing in, start the forge estate (`foreman` in forge) and set SERVICE_AUTH_ENABLED=true, GATEHOUSE_URL,
+# GATEHOUSE_CLIENT_ID and GATEHOUSE_CLIENT_SECRET below (the client is `lore-office` in homecloud's gatehouse overlay).
+
+[project]
+name = "lore-office"
+description = "local development estate"
+run_dir = ".run"
+
+[build]
+command = ["cargo", "build", "-q", "--package", "${package}"]
+binary = "target/debug/${package}"
+
+# The browser modules of the five pages, built the way the image builds them; runs before every start.
+[tasks.web]
+role = "migrate"
+description = "building the pages' modules"
+command = ["bash", "scripts/web.sh"]
+done = "pages built"
+
+[defaults]
+scheme = "http"
+host = "localhost"
+health_path = "/health"
+start_timeout_secs = 60
+workdir = "."
+env = { RUST_LOG = "info" }
+
+[[services]]
+name = "lore-office"
+package = "lore-office-server"
+port = 3000
+base_path = "/lore-office"
+needs = []
+
+[services.env]
+HOST = "127.0.0.1"
+PORT = "3000"
+BASE_PATH = "/lore-office"
+WASM_DIR = "${project_root}/web"
+CLOUD_STORAGE = "local"
+DATA_DIR = "${project_root}/.run/data"
+
+[[notes]]
+tone = "ok"
+label = "ready"
+message = "http://localhost:3000/lore-office/"
+when_selected = "lore-office"

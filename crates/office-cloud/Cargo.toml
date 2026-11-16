@@ -1,0 +1,39 @@
+[package]
+name = "office-cloud"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The cloud side of the suite, host independent: what a document in the cloud is (`DocMeta`), what a share link is (`Share`),
+# the storage behind them (`Storage`: a directory per user with a quota, `LocalStore`; or a warehouse storage per user,
+# `WarehouseStore`), and the rules (who may read, write and share what).
+[lib]
+name = "office_cloud"
+path = "src/lib.rs"
+
+[features]
+default = ["server"]
+# The storage (a directory per user, a warehouse storage per user) and the rules over it. The pages in the browser want only
+# the types (`DocMeta`, `Share`, ...), so they turn this off.
+server = ["dep:quench-archive", "dep:quench-client", "dep:tokio"]
+
+[dependencies]
+quench-archive = { workspace = true, optional = true }
+quench-client = { workspace = true, optional = true }
+quench-core = { workspace = true }
+quench-serde = { workspace = true }
+tokio = { workspace = true, optional = true }
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+harness = false
+
+[dev-dependencies]
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

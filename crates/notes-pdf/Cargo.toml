@@ -1,0 +1,31 @@
+[package]
+name = "notes-pdf"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# A deck on paper: one page per slide, the size of the stage, in the colours of the deck's theme. Text is set in the standard
+# PDF fonts; a string with characters they lack is set in an embedded Noto Sans (see pdf-write).
+[lib]
+name = "notes_pdf"
+path = "src/lib.rs"
+
+[dependencies]
+notes-md = { workspace = true }
+pdf-write = { workspace = true }
+quench-html = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+harness = false
+
+[dev-dependencies]
+quench-pdf = { registry = "ennor", version = "0.1" }
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

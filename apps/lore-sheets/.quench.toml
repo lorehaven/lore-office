@@ -1,0 +1,3 @@
+# Read by the `quench` command. Packages are lore-sheets-app, lore-sheets-server and so on.
+name = "lore-sheets"
+template = "web"

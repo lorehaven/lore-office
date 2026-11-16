@@ -1,0 +1,23 @@
+[package]
+name = "lore-docs-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "lore_docs_app"
+path = "src/lib.rs"
+# `cdylib` is the module the browser loads; `rlib` is what the server renders pages from.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+office-cloud-ui = { workspace = true }
+docs-app = { workspace = true }
+docs-text = { workspace = true }
+quench-core = { workspace = true }
+quench-ui = { workspace = true }
+quench-ui-web = { workspace = true }
+
+[lints]
+workspace = true

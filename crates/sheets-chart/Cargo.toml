@@ -1,0 +1,28 @@
+[package]
+name = "sheets-chart"
+autotests = false
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Charts as shapes: bars, lines, areas, pies and scatter plots laid out from the cells they show, and written as SVG. The
+# screen draws the SVG; export draws the shapes on a PDF page.
+[lib]
+name = "sheets_chart"
+path = "src/lib.rs"
+
+[dependencies]
+sheets-model = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+harness = false
+
+[dev-dependencies]
+quench-test = { workspace = true }
+
+[lints]
+workspace = true

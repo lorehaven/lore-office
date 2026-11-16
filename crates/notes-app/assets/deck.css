@@ -1,0 +1,30 @@
+/* How a slide looks: a fixed stage (the app scales it to fit), the themes, and the layouts a slide may ask for. */
+.slide { box-sizing: border-box; width: 100%; height: 100%; padding: 48px 64px; overflow: hidden; font-size: 30px; line-height: 1.35; }
+.slide h1 { margin: 0 0 0.4em; font-size: 1.9em; line-height: 1.15; }
+.slide h2 { margin: 0 0 0.4em; font-size: 1.5em; line-height: 1.2; }
+.slide h3 { margin: 0 0 0.3em; font-size: 1.2em; }
+.slide p { margin: 0 0 0.6em; }
+.slide ul, .slide ol { margin: 0 0 0.6em; padding-left: 1.2em; }
+.slide li { margin: 0.15em 0; }
+.slide pre { margin: 0 0 0.6em; padding: 0.5em 0.7em; font-size: 0.75em; overflow: hidden; background: rgba(127, 127, 127, 0.16); border-radius: 8px; }
+.slide code { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
+.slide table { border-collapse: collapse; margin: 0 0 0.6em; font-size: 0.85em; }
+.slide th, .slide td { padding: 0.25em 0.8em; border: 1px solid rgba(127, 127, 127, 0.5); }
+.slide img { max-width: 100%; max-height: 70%; }
+.slide blockquote { margin: 0 0 0.6em; padding: 0.1em 0.9em; border-left: 6px solid var(--slide-accent, currentColor); opacity: 0.9; }
+.slide .callout { margin: 0 0 0.6em; padding: 0.4em 0.9em; border-left: 6px solid var(--slide-accent, currentColor); background: rgba(127, 127, 127, 0.14); border-radius: 0 8px 8px 0; }
+.slide .callout-title { font-weight: 700; }
+.slide h1, .slide h2, .slide a, .slide .wikilink { color: var(--slide-accent, inherit); }
+.slide .math { font-family: ui-serif, Georgia, serif; font-style: italic; }
+.slide.layout-two-col { column-count: 2; column-gap: 64px; }
+.slide.layout-two-col h1, .slide.layout-two-col h2 { column-span: all; }
+.slide.layout-center { display: flex; flex-direction: column; justify-content: center; text-align: center; }
+.slide.layout-title { display: flex; flex-direction: column; justify-content: center; }
+.slide.layout-title h1 { font-size: 2.6em; }
+
+.theme-default { background: var(--office-bg, #fff); color: var(--office-fg, #1f2328); --slide-accent: var(--office-accent, #1a73e8); }
+.theme-light { background: #fff; color: #1f2328; --slide-accent: #1a73e8; }
+.theme-dark { background: #15181c; color: #e6e8ea; --slide-accent: #6ea8fe; }
+.theme-night { background: #0f1220; color: #e8ebf5; --slide-accent: #8ab4ff; }
+.theme-paper { background: #fbf7ee; color: #2b2a27; --slide-accent: #a4452c; }
+.theme-contrast { background: #000; color: #fff; --slide-accent: #ffe14d; }
