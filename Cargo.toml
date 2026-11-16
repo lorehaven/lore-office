@@ -34,7 +34,7 @@ docs-text = { path = "crates/docs-text" }
 docs-print = { path = "crates/docs-print" }
 docs-docx = { path = "crates/docs-docx" }
 docs-md = { path = "crates/docs-md" }
-office-cloud = { path = "crates/office-cloud" }
+office-cloud = { path = "crates/office-cloud", default-features = false }
 office-cloud-ui = { path = "crates/office-cloud-ui" }
 docs-app = { path = "crates/docs-app" }
 notes-pdf = { path = "crates/notes-pdf" }

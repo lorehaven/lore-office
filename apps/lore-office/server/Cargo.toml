@@ -29,7 +29,7 @@ lore-notes-app = { workspace = true }
 lore-pdf-app = { workspace = true }
 lore-sheets-app = { workspace = true }
 notes-app = { workspace = true }
-office-cloud = { workspace = true }
+office-cloud = { workspace = true, features = ["server"] }
 office-cloud-ui = { workspace = true }
 office-theme = { workspace = true }
 office-ui = { workspace = true }

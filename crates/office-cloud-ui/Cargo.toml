@@ -15,7 +15,7 @@ name = "office_cloud_ui"
 path = "src/lib.rs"
 
 [dependencies]
-office-cloud = { workspace = true, default-features = false }
+office-cloud = { workspace = true }
 office-ui = { workspace = true }
 quench-serde = { workspace = true }
 quench-ui = { workspace = true }
