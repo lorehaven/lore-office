@@ -5,7 +5,9 @@
     clippy::ignored_unit_patterns,
     clippy::assert_is_empty
 )]
-use office_cloud_ui::{Binding, Cloud, Context, Panel, Reply, Transport, menu_items, overlay};
+use office_cloud_ui::{
+    Binding, Cloud, Context, Panel, Reply, Transport, menu_items, overlay, server_page,
+};
 use quench_ui::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -84,6 +86,7 @@ fn setup(
     let context = Context {
         api: "/api".into(),
         user: user.map(str::to_string),
+        denied: None,
         login: "/ui/login".into(),
         share: share.then(|| office_cloud_ui::SharedWith {
             token: "tok".into(),
@@ -270,6 +273,7 @@ fn a_page_opened_from_a_link_loads_it_and_saves_through_it_and_failures_are_said
         &Context {
             api: "/x/api".into(),
             user: Some("é".into()),
+            denied: Some("d".into()),
             login: "/l".into(),
             share: None,
         }
@@ -283,3 +287,20 @@ fn a_page_opened_from_a_link_loads_it_and_saves_through_it_and_failures_are_said
 }
 
 quench_test::main!();
+
+#[quench_test::test]
+fn a_server_address_becomes_the_page_of_the_app_on_it() {
+    assert_eq!(server_page("", "docs"), "");
+    assert_eq!(
+        server_page("https://ennor.ddns.net", "docs"),
+        "https://ennor.ddns.net/lore-office/docs"
+    );
+    assert_eq!(
+        server_page("ennor.ddns.net/", "sheets"),
+        "https://ennor.ddns.net/lore-office/sheets"
+    );
+    assert_eq!(
+        server_page(" https://example.org/office/ ", "pdf"),
+        "https://example.org/office/pdf"
+    );
+}

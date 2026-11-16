@@ -45,6 +45,19 @@ pub async fn user_of(req: &Request, jwt: &JwtConfig) -> Option<String> {
     )
 }
 
+/// Signed in at the realm, but not allowed into this service: who they are, so the page can say so.
+pub async fn denied_user(req: &Request, jwt: &JwtConfig) -> Option<String> {
+    if !jwt.auth_enabled {
+        return None;
+    }
+    let token = quench_auth::http::domain::cookies::cookie_value(
+        req,
+        &quench_auth::domain::realm::session_cookie_name(),
+    )?;
+    let claims = jwt.decode_claims(&token).await.ok()?;
+    (!claims.allows(&jwt.service_name)).then_some(claims.sub)
+}
+
 fn query(req: &Request, key: &str) -> Option<String> {
     let q = req.uri().query()?;
     q.split('&').find_map(|pair| {

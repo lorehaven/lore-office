@@ -25,6 +25,8 @@ pub struct Context {
     /// `""` when there is no cloud: the apps then have no cloud menu at all.
     pub api: String,
     pub user: Option<String>,
+    /// Signed in at the realm as this person, but the account has no access to this service.
+    pub denied: Option<String>,
     /// Where signing in starts.
     pub login: String,
     pub share: Option<SharedWith>,
@@ -48,6 +50,7 @@ impl Context {
         Self {
             api: s("api").unwrap_or_default(),
             user: s("user"),
+            denied: s("denied"),
             login: s("login").unwrap_or_default(),
             share: v.get("share").and_then(|sh| {
                 Some(SharedWith {
@@ -67,6 +70,9 @@ impl Context {
         );
         if let Some(u) = &self.user {
             out.push_str(&format!(",\"user\":{}", json::to_string(u.as_str())));
+        }
+        if let Some(d) = &self.denied {
+            out.push_str(&format!(",\"denied\":{}", json::to_string(d.as_str())));
         }
         if let Some(sh) = &self.share {
             out.push_str(&format!(
@@ -557,6 +563,30 @@ pub fn cloud_button() -> View {
         .into_view()
 }
 
+/// Where a lore-office server keeps an app, from the address a person typed.
+///
+/// The page is the address then `/<kind>`. Without a scheme it is `https://`; with only a host (nothing after it) the
+/// suite's usual place, `/lore-office`, is added. Empty when nothing was typed.
+#[must_use]
+pub fn server_page(address: &str, kind: &str) -> String {
+    let address = address.trim().trim_end_matches('/');
+    if address.is_empty() {
+        return String::new();
+    }
+    let with_scheme = if address.contains("://") {
+        address.to_string()
+    } else {
+        format!("https://{address}")
+    };
+    let after_scheme = with_scheme.split_once("://").map_or("", |(_, rest)| rest);
+    let base = if after_scheme.contains('/') {
+        with_scheme
+    } else {
+        format!("{with_scheme}/lore-office")
+    };
+    format!("{base}/{kind}")
+}
+
 /// The server kept in the browser's storage, if any.
 fn saved_server() -> String {
     #[cfg(target_arch = "wasm32")]
@@ -688,18 +718,27 @@ fn account(c: &Cloud) -> View {
     let home = c.home();
     if c.enabled() {
         let who = match (&c.context.user, c.context.login.is_empty()) {
+            (None, _) if c.context.denied.is_some() => format!(
+                "{} {}: {}",
+                t("Signed in as"),
+                c.context.denied.clone().unwrap_or_default(),
+                t("this account has no access to the cloud; ask an administrator")
+            ),
             (Some(u), _) => format!("{} {u}", t("Signed in as")),
             (None, false) => t("Not signed in"),
             (None, true) => t("Local use: no sign-in on this server"),
         };
         bar = bar.child(span().class("cloud-who").text(who));
-        if c.context.user.is_some() && !c.context.login.is_empty() {
+        if (c.context.user.is_some() || c.context.denied.is_some()) && !c.context.login.is_empty() {
             bar = bar.child(
                 a().class("tool")
                     .attr("href", format!("{home}ui/logout"))
                     .text(t("Sign out")),
             );
-        } else if c.context.user.is_none() && !c.context.login.is_empty() {
+        } else if c.context.user.is_none()
+            && c.context.denied.is_none()
+            && !c.context.login.is_empty()
+        {
             bar = bar.child(
                 a().class("tool primary")
                     .attr("href", c.context.login.clone())
@@ -725,7 +764,7 @@ fn account(c: &Cloud) -> View {
             .child(
                 input()
                     .attr("type", "url")
-                    .attr("placeholder", "https://example.org/lore-office")
+                    .attr("placeholder", "https://ennor.ddns.net/lore-office")
                     .attr("aria-label", t("Address of the lore-office server"))
                     .attr("value", c.server.get_untracked())
                     .on_input(move |v| {
@@ -735,14 +774,7 @@ fn account(c: &Cloud) -> View {
             )
             .child(
                 a().class("tool")
-                    .attr_fn("href", move || {
-                        let s = link.get();
-                        if s.is_empty() {
-                            String::new()
-                        } else {
-                            format!("{}/{kind}", s.trim_end_matches('/'))
-                        }
-                    })
+                    .attr_fn("href", move || server_page(&link.get(), kind))
                     .text(t("Connect")),
             ),
     )

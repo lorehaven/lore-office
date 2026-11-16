@@ -1,5 +1,5 @@
 /* The colours are the --office-* variables of office-theme, which is served first. */
-html, body, #app { height: 100%; margin: 0; background: var(--office-bg); color: var(--office-fg); font: 14px/1.2 system-ui, sans-serif; }
+html, body, #app { height: 100%; margin: 0; background: var(--office-bg); color: var(--office-fg); font: 14px/1.2 var(--office-font); }
 
 /* Scrollbars follow the theme: thin, rounded thumbs on the header colour. Chromium and Safari draw them from the pseudo
    elements; other browsers get the standard properties. */
@@ -31,7 +31,7 @@ html, body, #app { height: 100%; margin: 0; background: var(--office-bg); color:
 .icon-home { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11.5 12 4l9 7.5'/%3E%3Cpath d='M5.5 10v10h13V10'/%3E%3Cpath d='M10 20v-5.5h4V20'/%3E%3C/svg%3E"); }
 .icon-cloud { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.9 9.6 4.2 4.2 0 0 1 17.5 18Z'/%3E%3C/svg%3E"); }
 .cloud-button { display: inline-flex; align-items: center; gap: 6px; }
-.home-link { display: flex; align-items: center; margin-right: 6px; padding: 0 8px; font-size: 18px; line-height: 1; color: var(--office-head-fg); text-decoration: none; border-radius: 4px; }
+.home-link { display: flex; align-items: center; margin-right: 6px; padding: 0 8px; font-size: 18px; line-height: 1; color: var(--office-head-fg); text-decoration: none; border-radius: var(--office-radius); }
 .home-link:hover { color: var(--office-accent); background: color-mix(in srgb, var(--office-fg) 8%, transparent); }
 .ribbon-lead { display: flex; }
 .ribbon-lead .tool { min-height: 0; height: 100%; padding: 0 14px; font-size: 14px; font-weight: 600; color: var(--office-accent); border-radius: 0; border: 0; border-bottom: 2px solid transparent; }
@@ -61,7 +61,7 @@ html, body, #app { height: 100%; margin: 0; background: var(--office-bg); color:
 .group:last-child { border-right: 0; }
 .group-body { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; min-height: 34px; }
 .group-label { margin-top: 2px; font-size: 11px; line-height: 14px; text-align: center; color: var(--office-head-fg); user-select: none; }
-.tool { min-height: 30px; min-width: 30px; padding: 2px 9px; font: inherit; font-size: 13px; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 4px; cursor: pointer; }
+.tool { min-height: 30px; min-width: 30px; padding: 2px 9px; font: inherit; font-size: 13px; color: inherit; background: transparent; border: 1px solid transparent; border-radius: var(--office-radius); cursor: pointer; }
 .tool:hover { background: color-mix(in srgb, var(--office-fg) 8%, transparent); border-color: var(--office-grid); }
 .tool:active { background: color-mix(in srgb, var(--office-fg) 14%, transparent); }
 .tool:focus-visible { outline: 2px solid var(--office-accent); outline-offset: 1px; }
@@ -72,10 +72,10 @@ html, body, #app { height: 100%; margin: 0; background: var(--office-bg); color:
 .menu { position: relative; display: inline-block; }
 .menu-button::after { content: ""; display: inline-block; margin-left: 7px; vertical-align: middle; border: 4px solid transparent; border-top-color: currentColor; border-bottom-width: 0; }
 .menu-backdrop { position: fixed; inset: 0; z-index: 20; background: transparent; }
-.menu-list { position: absolute; z-index: 21; top: calc(100% + 2px); left: 0; min-width: 220px; padding: 4px; display: flex; flex-direction: column; background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 6px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); }
+.menu-list { position: absolute; z-index: 21; top: calc(100% + 2px); left: 0; min-width: 220px; padding: 4px; display: flex; flex-direction: column; background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: var(--office-radius-lg); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); }
 .menu-list.context-menu { position: fixed; z-index: 41; top: 0; left: 0; }
 .menu-backdrop.context-backdrop { z-index: 40; }
-.menu-item { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 30px; padding: 0 10px; font: inherit; font-size: 13px; color: inherit; text-align: left; background: transparent; border: 0; border-radius: 4px; cursor: pointer; }
+.menu-item { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 30px; padding: 0 10px; font: inherit; font-size: 13px; color: inherit; text-align: left; background: transparent; border: 0; border-radius: var(--office-radius); cursor: pointer; }
 .menu-item:hover, .menu-item:focus-visible { background: color-mix(in srgb, var(--office-accent) 16%, transparent); outline: none; }
 .menu-item .hint { font-size: 12px; color: var(--office-head-fg); }
 .menu-separator { height: 1px; margin: 4px 2px; background: var(--office-grid); }
@@ -87,9 +87,9 @@ html, body, #app { height: 100%; margin: 0; background: var(--office-bg); color:
 .ribbon-extras > * { display: flex; align-items: center; }
 
 /* The cloud: a banner for what was said, and a panel of the person's documents. */
-.cloud-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 60; display: flex; gap: 10px; align-items: center; padding: 8px 12px; max-width: min(640px, 92vw); color: var(--office-fg); background: var(--office-head-bg); border: 1px solid var(--office-grid); border-radius: 8px; box-shadow: var(--office-shadow); font-size: 13px; }
+.cloud-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 60; display: flex; gap: 10px; align-items: center; padding: 8px 12px; max-width: min(640px, 92vw); color: var(--office-fg); background: var(--office-head-bg); border: 1px solid var(--office-grid); border-radius: var(--office-radius-lg); box-shadow: var(--office-shadow); font-size: 13px; }
 .cloud-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; background: rgba(0, 0, 0, 0.4); }
-.cloud-panel { width: min(560px, 94vw); max-height: 84vh; overflow: auto; color: var(--office-fg); background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 10px; box-shadow: var(--office-shadow); }
+.cloud-panel { width: min(560px, 94vw); max-height: 84vh; overflow: auto; color: var(--office-fg); background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: var(--office-radius-lg); box-shadow: var(--office-shadow); }
 .cloud-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--office-grid); }
 .cloud-head h2 { margin: 0; font-size: 16px; }
 .cloud-body { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
@@ -98,7 +98,7 @@ html, body, #app { height: 100%; margin: 0; background: var(--office-bg); color:
 .cloud-row { display: flex; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--office-grid); }
 .cloud-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cloud-size, .cloud-usage { font-size: 12px; opacity: 0.7; }
-.cloud-link { width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit; font-size: 13px; color: var(--office-fg); background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 4px; }
+.cloud-link { width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit; font-size: 13px; color: var(--office-fg); background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: var(--office-radius); }
 a.tool.primary { align-self: flex-start; text-decoration: none; }
 .cloud-root { display: contents; }
 
@@ -107,7 +107,7 @@ a.tool.primary { align-self: flex-start; text-decoration: none; }
 .cloud-account .cloud-who { font-weight: 600; }
 .cloud-account a.tool { display: inline-flex; align-items: center; text-decoration: none; color: inherit; border-color: var(--office-grid); }
 .cloud-server { display: flex; flex: 1 1 100%; gap: 8px; align-items: center; font-size: 13px; }
-.cloud-server input { flex: 1; min-width: 0; padding: 4px 8px; color: inherit; background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 4px; font: inherit; }
+.cloud-server input { flex: 1; min-width: 0; padding: 4px 8px; color: inherit; background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: var(--office-radius); font: inherit; }
 
 /* Toolbar icons: a mask of a small drawing, painted in the text colour. */
 .ic-bullets { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg fill='black' stroke='none'%3E%3Ccircle cx='4' cy='6' r='1.6'/%3E%3Ccircle cx='4' cy='12' r='1.6'/%3E%3Ccircle cx='4' cy='18' r='1.6'/%3E%3C/g%3E%3Cpath d='M9 6H21'/%3E%3Cpath d='M9 12H21'/%3E%3Cpath d='M9 18H21'/%3E%3C/svg%3E"); }

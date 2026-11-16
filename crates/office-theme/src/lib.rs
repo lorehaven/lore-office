@@ -33,14 +33,14 @@ pub fn icon_script(svg: &str) -> String {
     )
 }
 
-/// The palettes, in menu order, each with the colour of its swatch (the style sheet draws them: a page allows no inline styles). The first is the one used until another is chosen.
+/// The palettes, in menu order, each with the colour of its swatch (the style sheet draws them: a page allows no inline styles). Green, forge's own, is the one used until another is chosen.
 pub const PALETTES: [(&str, &str); 6] = [
-    ("blue", "#1a73e8"),
-    ("green", "#1a7f4b"),
-    ("teal", "#0e8a7d"),
-    ("purple", "#7048c9"),
-    ("rose", "#d6275d"),
-    ("orange", "#d9560d"),
+    ("blue", "#2e90fa"),
+    ("green", "#17b26a"),
+    ("teal", "#15b79e"),
+    ("purple", "#9e77ed"),
+    ("rose", "#f63d68"),
+    ("orange", "#fb6514"),
 ];
 
 /// The texts of the theme menu, in the app's language.

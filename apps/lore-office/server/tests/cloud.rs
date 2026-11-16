@@ -413,3 +413,45 @@ fn share_links_open_without_signing_in_and_edit_only_with_edit_rights() {
 }
 
 quench_test::main!();
+
+#[quench_test::test]
+fn after_signing_in_a_person_goes_back_to_the_page_they_came_from() {
+    run(async {
+        let r = rig("/lore-office", 1 << 20).await;
+        // No note: the launcher.
+        let plain = r.call("GET", "/lore-office/ui/home", &[], b"").await;
+        assert_eq!(plain.status, 302);
+        assert_eq!(plain.header("location"), Some("/lore-office/"));
+        // A note of the page they were on: back to it, and the note is cleared.
+        let cookie = lore_office_server::site::return_cookie("/lore-office/docs");
+        let pair = cookie.split(';').next().unwrap().to_string();
+        let back = r
+            .call("GET", "/lore-office/ui/home", &[("cookie", &pair)], b"")
+            .await;
+        assert_eq!(back.status, 302);
+        assert_eq!(back.header("location"), Some("/lore-office/docs"));
+        assert!(
+            back.headers
+                .iter()
+                .any(|(k, v)| k == "set-cookie" && v.contains("Max-Age=0"))
+        );
+        // Only pages of this service count: no way out.
+        for bad in [
+            "https://evil.example/",
+            "//evil.example/",
+            "/elsewhere",
+            "/lore-office//evil.example",
+        ] {
+            let pair = lore_office_server::site::return_cookie(bad);
+            let pair = pair.split(';').next().unwrap().to_string();
+            let answer = r
+                .call("GET", "/lore-office/ui/home", &[("cookie", &pair)], b"")
+                .await;
+            assert_eq!(answer.header("location"), Some("/lore-office/"), "{bad}");
+        }
+        assert!(lore_office_server::site::valid_return(
+            "/lore-office",
+            "/lore-office/sheets?share=ab12"
+        ));
+    });
+}

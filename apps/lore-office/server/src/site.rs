@@ -2,7 +2,7 @@
 
 #![allow(clippy::type_complexity, clippy::unused_self)]
 
-use crate::{CloudApi, user_of};
+use crate::{CloudApi, denied_user, user_of};
 use office_cloud::Storage;
 use office_cloud_ui::{Context, SharedWith};
 use quench_auth::domain::jwt::JwtConfig;
@@ -12,6 +12,40 @@ use quench_fullstack::{Page, Ui, UiApp};
 use quench_http::body::InboundBody;
 use quench_http::prelude::{Endpoint, Request, Response, http::StatusCode};
 use std::sync::Arc;
+
+/// The cookie that remembers which page a person was on when they went to sign in. The sign-in library always ends at
+/// `/ui/home`, so that route reads this and sends them back.
+const RETURN_COOKIE: &str = "lore_return";
+
+/// Whether `to` is a page of this service a person may be sent back to: under the base path, no way out of it.
+#[must_use]
+pub fn valid_return(base: &str, to: &str) -> bool {
+    let rooted = format!("{base}/");
+    to.starts_with(&rooted)
+        && to.len() <= 300
+        && !to.contains("//")
+        && !to.contains('\\')
+        && !to.chars().any(char::is_control)
+}
+
+/// The `set-cookie` value that remembers `to` for ten minutes.
+#[must_use]
+pub fn return_cookie(to: &str) -> String {
+    format!(
+        "{RETURN_COOKIE}={}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600",
+        quench_auth::domain::percent::encode(to)
+    )
+}
+
+/// The page remembered in a request's `cookie` header, if it is still one the service allows.
+#[must_use]
+pub fn returned_to(base: &str, cookies: &str) -> Option<String> {
+    let raw = cookies.split(';').find_map(|c| {
+        let (name, value) = c.trim().split_once('=')?;
+        (name == RETURN_COOKIE).then_some(value)
+    })?;
+    quench_auth::domain::percent::decode(raw).filter(|to| valid_return(base, to))
+}
 
 /// The compiled wasm of each page.
 #[derive(Clone, Debug, Default)]
@@ -190,6 +224,11 @@ impl Site {
 
     async fn context(&self, req: &Request, app: &str) -> Context {
         let user = user_of(req, &self.cloud.jwt).await;
+        let denied = if user.is_none() {
+            denied_user(req, &self.cloud.jwt).await
+        } else {
+            None
+        };
         let login_back = format!("{}/{app}", self.base);
         // Without gatehouse there is no signing in: the cloud is the local person's, and the page has no link to follow.
         let login = if self.sso.is_some() {
@@ -214,6 +253,7 @@ impl Site {
         Context {
             api: format!("{}/api", self.base),
             user,
+            denied,
             login,
             share,
         }
@@ -262,7 +302,17 @@ impl Endpoint for Site {
             ["api", ..] => self.cloud.call(req).await,
             ["ui", "login"] => match &self.sso {
                 Some(sso) => {
-                    quench_auth::http::routers::ui::pages::auth::login_delegation(&req, sso).await
+                    let mut response =
+                        quench_auth::http::routers::ui::pages::auth::login_delegation(&req, sso)
+                            .await;
+                    // Remember the page they came from: the library ends at /ui/home, which sends them back to it.
+                    if let Some(to) =
+                        quench_auth::http::routers::ui::pages::auth::redirect_target(&req)
+                            .filter(|to| valid_return(&self.base, to))
+                    {
+                        response = response.append_header("set-cookie", return_cookie(&to));
+                    }
+                    response
                 }
                 None => Response::text(StatusCode::NOT_FOUND, "sign-in is not set up"),
             },
@@ -275,7 +325,25 @@ impl Endpoint for Site {
             ["ui", "logout"] => {
                 quench_auth::http::routers::ui::pages::auth::logout_delegation(&req)
             }
-            ["ui", "home"] => self.go(&format!("{}/", self.base)),
+            ["ui", "home"] => {
+                let back = req
+                    .headers()
+                    .get("cookie")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|c| returned_to(&self.base, c));
+                // Back to the page they were on (and the note is thrown away), else the launcher.
+                back.map_or_else(
+                    || self.go(&format!("{}/", self.base)),
+                    |to| {
+                        self.go(&to).append_header(
+                            "set-cookie",
+                            format!(
+                                "{RETURN_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0"
+                            ),
+                        )
+                    },
+                )
+            }
             [] => {
                 let r = Self::rewritten(&mut req, "/", None);
                 self.launcher.call(r).await

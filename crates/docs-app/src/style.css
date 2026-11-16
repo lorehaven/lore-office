@@ -1,6 +1,6 @@
 .docs { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); height: 100%; }
 .canvas { overflow: auto; padding: 24px 12px 60px; background: var(--office-head-bg); }
-.page { --pad: clamp(24px, 8vw, 96px); box-sizing: border-box; width: min(794px, 100%); min-height: 1123px; margin: 0 auto; padding: 96px var(--pad); overflow-x: clip; outline: none; background: var(--office-bg); color: var(--office-fg); border: 1px solid var(--office-grid); box-shadow: var(--office-shadow); font: 16px/1.5 "Liberation Serif", Georgia, serif; white-space: pre-wrap; overflow-wrap: anywhere; display: grid; grid-template-columns: repeat(840, minmax(0, 1fr)); align-content: start; }
+.page { font-family: system-ui, sans-serif; --pad: clamp(24px, 8vw, 96px); box-sizing: border-box; width: min(794px, 100%); min-height: 1123px; margin: 0 auto; padding: 96px var(--pad); overflow-x: clip; outline: none; background: var(--office-bg); color: var(--office-fg); border: 1px solid var(--office-grid); box-shadow: var(--office-shadow); font: 16px/1.5 "Liberation Serif", Georgia, serif; white-space: pre-wrap; overflow-wrap: anywhere; display: grid; grid-template-columns: repeat(840, minmax(0, 1fr)); align-content: start; }
 .page > * { grid-column: 1 / -1; }
 .page > .cell { margin: 0; padding: 4px 6px; min-height: 1.5em; border-right: 1px solid var(--office-grid); border-bottom: 1px solid var(--office-grid); }
 .page > .cell.r0 { border-top: 1px solid var(--office-grid); }
