@@ -86,9 +86,22 @@ impl WarehouseStore {
     /// The name of a user's storage.
     #[must_use]
     pub fn storage_of(user: &str) -> String {
+        // Warehouse allows letters, digits, `-` and `_` in a storage name (no dots, which `safe_name` keeps), so a name like
+        // `ada.lovelace` is made `ada_lovelace`; the checksum of the real name keeps two names that look alike apart.
+        let part: String = user
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
+            .take(48)
+            .collect();
         format!(
             "lore-{}-{:08x}",
-            safe_name(user).to_lowercase(),
+            if part.is_empty() { "user" } else { &part },
             quench_archive::checksum::crc32(user.as_bytes())
         )
     }
@@ -172,7 +185,7 @@ impl WarehouseStore {
             json::to_string(owner),
             self.quota
         );
-        let (status, _) = self
+        let (status, body) = self
             .call(
                 "POST",
                 "/api/v1/files",
@@ -183,7 +196,11 @@ impl WarehouseStore {
         match status {
             200..=299 | 409 => Ok(()),
             s => Err(Error::Io(format!(
-                "warehouse would not make the storage ({s})"
+                "warehouse would not make the storage {storage} for {owner} ({s}): {}",
+                String::from_utf8_lossy(&body)
+                    .chars()
+                    .take(200)
+                    .collect::<String>()
             ))),
         }
     }

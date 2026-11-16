@@ -29,7 +29,7 @@ kubectl get ingress -n lore-office
 
 ## Logging
 
-`RUST_LOG` sets the level (`info`). The service prints its address at start and logs a storage failure as `cloud storage: <reason>` (the person gets `502 the storage did not answer`). It does not log every request.
+`RUST_LOG` sets the level (`info`); the log goes to the console. The service prints its address at start and logs a storage failure as `cloud storage: <reason>`, with warehouse's answer in it (the person gets `502 the storage did not answer`). It does not log every request.
 
 ## Failure modes
 

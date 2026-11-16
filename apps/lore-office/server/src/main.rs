@@ -59,6 +59,8 @@ fn storage() -> Arc<dyn Storage> {
 
 #[tokio::main]
 async fn main() {
+    // Without this the service logs nothing, including why the storage did not answer.
+    quench_log::init_console();
     let auth = std::env::var("SERVICE_AUTH_ENABLED").is_ok_and(|v| v == "true");
     let jwt = if auth {
         JwtConfig::init().await

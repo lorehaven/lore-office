@@ -46,7 +46,7 @@ A safe name keeps letters, digits and `-_.`, is never empty and is at most 64 ch
 
 ## Warehouse store (`CLOUD_STORAGE=warehouse`)
 
-One warehouse storage per person, made the first time they save, named `lore-<safe name in lower case>-<crc32, 8 hex digits>` with `quota_bytes` from `USER_QUOTA_BYTES`. Inside it:
+One warehouse storage per person, made the first time they save, named `lore-<name>-<crc32, 8 hex digits>` with `quota_bytes` from `USER_QUOTA_BYTES`. Warehouse allows only letters, digits, `-` and `_` in a storage name, so in `<name>` (at most 48 characters, lower case) every other character, a dot or an `@` for example, becomes `_`; the checksum of the real name keeps `ada.lovelace` and `ada_lovelace` apart. The storage's owner is the person's name, which must be a user warehouse knows (warehouse answers `400 no such user to own this storage` otherwise). Inside it:
 
 ```text
 docs/<id>.bin

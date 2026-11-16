@@ -219,6 +219,21 @@ fn a_warehouse_storage_has_a_name_of_its_own_for_each_user_and_needs_its_address
         WarehouseStore::storage_of("Alice"),
         WarehouseStore::storage_of("Alice")
     );
+    // Warehouse takes letters, digits, `-` and `_` only: dots, @ and the like are turned into `_`.
+    for name in ["ada.lovelace", "a@b.c", "\u{c5}sa", "x y/z", "..."] {
+        let storage = WarehouseStore::storage_of(name);
+        assert!(
+            storage
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+            "{storage}"
+        );
+    }
+    assert!(WarehouseStore::storage_of("ada.lovelace").starts_with("lore-ada_lovelace-"));
+    assert_ne!(
+        WarehouseStore::storage_of("ada.lovelace"),
+        WarehouseStore::storage_of("ada_lovelace")
+    );
     // Without WAREHOUSE_URL and GATEHOUSE_URL there is nothing to talk to.
     if std::env::var("WAREHOUSE_URL").is_err() {
         assert!(matches!(WarehouseStore::from_env(), Err(Error::Invalid(_))));

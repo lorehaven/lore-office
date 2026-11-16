@@ -4,3 +4,4 @@
 /.run
 # Working notes and plans stay local.
 /plans
+.anvil/secret.toml
