@@ -22,13 +22,13 @@ RUN cargo build --release -p lore-office-server
 
 FROM alpine:3.22
 
-RUN apk add --no-cache ca-certificates && addgroup -g 999 lore && adduser -D -u 999 -G lore lore
+RUN apk add --no-cache ca-certificates && addgroup -g 10001 lore && adduser -D -u 10001 -G lore lore
 WORKDIR /app
-COPY --from=builder --chown=999:999 /work/target/release/lore-office-server /app/lore-office-server
-COPY --from=builder --chown=999:999 /work/web /app/web
+COPY --from=builder --chown=10001:10001 /work/target/release/lore-office-server /app/lore-office-server
+COPY --from=builder --chown=10001:10001 /work/web /app/web
 # The person's documents when the storage is local (a volume belongs here).
-RUN mkdir -p /data && chown 999:999 /data
-USER 999:999
+RUN mkdir -p /data && chown 10001:10001 /data
+USER 10001:10001
 
 ENV RUST_LOG="info" HOST="0.0.0.0" PORT="8080" WASM_DIR="/app/web" DATA_DIR="/data" CLOUD_STORAGE="local"
 EXPOSE 8080
