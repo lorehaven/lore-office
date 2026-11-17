@@ -210,7 +210,7 @@ dependencies = [
 
 [[package]]
 name = "lore-office-server"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "docs-app",
  "lore-docs-app",
