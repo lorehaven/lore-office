@@ -192,13 +192,20 @@ impl Storage for LocalStore {
         let (id, before, folder, old_version) = match id {
             Some(id) => {
                 Self::check_id(id)?;
-                let old = Self::read_meta(&dir, id)?;
-                if let Some(want) = if_match
-                    && want != old.etag
-                {
-                    return Err(Error::Conflict { etag: old.etag });
+                // A document that is gone (deleted elsewhere, or its description lost) is made again under the same id:
+                // the person's text is worth more than the refusal.
+                match Self::read_meta(&dir, id) {
+                    Ok(old) => {
+                        if let Some(want) = if_match
+                            && want != old.etag
+                        {
+                            return Err(Error::Conflict { etag: old.etag });
+                        }
+                        (id.to_string(), old.size, old.folder, old.version)
+                    }
+                    Err(Error::NotFound) => (id.to_string(), 0, String::new(), 0),
+                    Err(e) => return Err(e),
                 }
-                (id.to_string(), old.size, old.folder, old.version)
             }
             None => (new_id(8), 0, String::new(), 0),
         };

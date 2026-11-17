@@ -209,12 +209,30 @@ fn a_share_link_opens_one_document_and_only_an_edit_link_saves_it() {
 }
 
 /// What both stores must do with folders and with documents shared with a named person.
+#[allow(clippy::too_many_lines)]
 async fn folders_and_grants(store: &dyn Storage) {
     let doc = store
         .put("ada", None, "Plan.docx", "docs", b"one", None)
         .await
         .unwrap();
     assert_eq!(doc.folder, "");
+    // A save of a document whose description is gone makes it again under its id.
+    let again = store
+        .put(
+            "ada",
+            Some("00aa11bb22cc33dd"),
+            "Back.docx",
+            "docs",
+            b"text",
+            Some("stale"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(again.id, "00aa11bb22cc33dd");
+    assert_eq!(
+        store.get("ada", &again.id).await.unwrap().1,
+        b"text".to_vec()
+    );
     // Folders: made, found with the ones above them, filled by moving, kept when a document is saved over.
     store.make_folder("ada", "Work/2026").await.unwrap();
     assert_eq!(store.folders("ada").await.unwrap(), ["Work", "Work/2026"]);

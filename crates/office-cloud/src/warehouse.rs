@@ -417,13 +417,20 @@ impl Storage for WarehouseStore {
         let (id, folder, version) = match id {
             Some(id) => {
                 // The description is enough to see whether the version is the one the save began from.
-                let old = self.meta(user, id).await?;
-                if let Some(want) = if_match
-                    && want != old.etag
-                {
-                    return Err(Error::Conflict { etag: old.etag });
+                // A document that is gone (deleted elsewhere, or its description lost) is made again under the same id:
+                // the person's text is worth more than the refusal.
+                match self.meta(user, id).await {
+                    Ok(old) => {
+                        if let Some(want) = if_match
+                            && want != old.etag
+                        {
+                            return Err(Error::Conflict { etag: old.etag });
+                        }
+                        (id.to_string(), old.folder, old.version)
+                    }
+                    Err(Error::NotFound) => (id.to_string(), String::new(), 0),
+                    Err(e) => return Err(e),
                 }
-                (id.to_string(), old.folder, old.version)
             }
             None => (new_id(8), String::new(), 0),
         };
