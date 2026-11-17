@@ -4,9 +4,9 @@ parent: Guides
 nav_order: 5
 ---
 
-How a document in the cloud is kept in step between hosts: whole documents for docs, notes and pdf, a log of cell changes for sheets, and the design for what comes next (the same log for docs, and showing who is editing where).
+How a document in the cloud is kept in step between hosts: a log of paragraph changes for docs, a log of cell changes for sheets, whole documents for notes and pdf, and who is editing where.
 
-## Whole documents (docs, notes, pdf)
+## Whole documents (notes, pdf; docs before the log)
 
 * **Saving.** docs and sheets send the whole file one second after the last change, or eight seconds after the first unsaved change when the person keeps typing without a pause. Each save names the version it began from (`If-Match`); the service answers `409` when it is no longer the current one. notes and pdf save when asked.
 * **Looking.** Every two seconds a page asks `GET /api/docs/{id}/meta` (through a link, `/api/s/{token}/meta`; for a shared document, `/api/shared/{owner}/{id}/meta`). When the version moved and the person has changed nothing since, the page loads the new file. With changes of their own it offers *Load their version* or *Keep mine*.
@@ -24,9 +24,18 @@ A sheets document in the cloud is its last full `.xlsx` and a numbered log of th
 * **First save.** The first save of a new document sends the file whole; the changes that were waiting are in it.
 * **Not covered.** A document opened from a view link or a view share only looks. The cell's `base` (the cell format a loaded file gave it) is not sent: a cell written by another page loses the border detail of its original format. The remote changes do not enter the undo history.
 
-## Design: the same for docs, by paragraph
+## Docs: a log of paragraph changes (built)
 
-The design below was written first; sheets follows it. What differs in the code is noted above.
+Docs uses the same log, service and timing as sheets (see above); what differs is what a change is.
+
+* **A change** replaces paragraphs: `{"at": 3, "del": 1, "ins": [paragraph, ...]}` means from paragraph 3, one paragraph is replaced by the ones listed. A paragraph is sent in full (kind, alignment, spacing and its runs with bold, italic, underline, strike, super/subscript, highlight, size, colour and family). The change is found by comparing the document with the last one the cloud is known to have and leaving out the paragraphs that are alike at the start and at the end, so editing steps are not tracked: typing in one paragraph sends that paragraph, a few hundred bytes.
+* **The whole file instead** when a change cannot be carried: a paragraph that points into the document's lists (a font by name, a link, a picture, a table cell), or a change to the header, footer, paper size or tables.
+* **Positions.** "Paragraph 3" means nothing once others' changes came in before it, so docs sends one change at a time, and when a change is refused because others came first, the page merges theirs into its document (theirs where it did not edit; its own where both changed the same paragraphs, which then stay and are sent over theirs), takes them as the cloud's state, and works its own change out again from the difference (`DeltaHooks::recompute`).
+* **Not covered.** Others' changes do not enter the undo history, so undoing after someone else's edit in the same place sends the older paragraphs again. A caret inside a paragraph someone else changed is kept by the browser, not moved by the model.
+
+## The design that came first
+
+The design below was written before the code; sheets and docs follow it. What differs in the code is noted above.
 
 A document in the cloud becomes its last full file plus a short, numbered log of changes.
 
@@ -45,15 +54,16 @@ ops/<id>/<n>.json         change number n (n counts from the snapshot's version)
 
 Size of a save goes from the whole document to a few hundred bytes; warehouse files change rarely, and a check for news is a few bytes. A file with no log of its own always opens: the snapshot is a complete document.
 
-## Design: presence (not built)
+## Presence and the held question (built)
 
-Presence says who else has the document open and where. It is advisory: it enforces nothing.
+Presence says who else has the document open and where. It is advisory: it enforces nothing, and it is kept in the service's memory only (a restart empties it and the pages say again where they are).
 
-* **Why not lock files.** A lock file in warehouse is a database write for every heartbeat, and it is left behind when a browser closes, so an expiry would be needed anyway.
-* **Heartbeat.** Each open page sends one every one to two seconds: a name, a colour, and the position of the caret or selection (paragraph id and offset in docs, a cell range in sheets). The service keeps them in memory and drops an entry after about ten seconds of silence. They come back in the answer to "anything after version n?", so a page makes one request.
-* **Who people are.** A signed-in person shows under their user name. Anyone else, someone on a share link, gets a random animal name and a random colour. The name is made when the page opens, kept for the browser session (so a reload keeps it) and is not related to who the person is. The colour comes from a fixed palette of about a dozen colours that can be told apart; the animal from a list of short names (`Otter`, `Heron`, `Lynx`, …). Two people on the same document never share a name: a clash adds a number (`Otter 2`) and a colour is taken that is not in use.
-* **What is drawn.** sheets draw the other person's cell range in their colour with their name on it. docs mark the paragraph (a coloured edge and a name tag), because drawing a caret inside a paragraph needs the position of the text on screen, which `quench-ui` cannot measure; with such a primitive, a real caret would follow. A small strip in the ribbon lists who is here.
-* **Rights.** Presence is sent and read with the same rights as the document. A page opened by a view link or a view share can read presence and shows as viewing.
+* **Where a page is.** A page sends `POST .../presence` with a client id, its name and colour, and a short text its app writes: sheets send the selected rectangle (`sheet:row:col:row:col`), docs the paragraph the caret is in (`p<index>`). It sends when the text changes (looked at every 0.4 s) and every 8 s otherwise. Leaving a document (opening another, signing out) sends `gone`.
+* **The held question.** A page also keeps one `GET .../presence?client=c&seen=n&wait=20000` open. The service answers it when anything about the document's room changes from number `n`: a page arrives, moves or leaves (one that is not heard from for 12 s is dropped), or the document is saved, changed or deleted. The answer is the new number, how many times the document itself changed, and the others. A page that is told the document changed asks for it at once (its changes for sheets, its version for the rest). So an update reaches the others as fast as it is sent, and the 2 s polling is left as a safety net every 16 s while the held question works; when it fails (an older service, a network that cuts it) the page waits 3 s and asks again, and polls every 2 s as before.
+* **Who people are.** A signed-in person shows under their user name. Anyone else gets a colour and an animal (`Teal Otter`, `Amber Heron`, 8 colours and 20 animals) made when the page opens, so a reload makes a new one. Two people with one name are told apart with a number on the screen (`Otter 2`).
+* **What is drawn.** A strip of coloured initials next to the Cloud button lists who is here (hover for the name). sheets draw the other person's rectangle in their colour with the name on it, on the sheet they are on. docs mark the paragraph with a bar in the margin in their colour, because drawing a caret inside a paragraph needs the position of the text on screen, which `quench-ui` cannot measure. The paged view of docs does not mark paragraphs. notes and pdf show the strip only.
+* **Rights.** Presence is read and sent with the same access as the document: the owner, a link (view or edit) or a share with the person.
+* **Not covered.** Presence is not a lock: two people in one paragraph are only shown to each other.
 
 ## Replicas
 
@@ -70,6 +80,6 @@ Until then, scaling the deployment above one replica is not supported for docume
 ## Build order
 
 1. Whole-document sync with the faster timers and the cheaper save (done).
-2. The delta log: sheets (done), then docs at paragraph level.
-3. Presence.
-4. A pushed stream (server-sent events) instead of polling, for updates in well under a second.
+2. The delta log: sheets and docs (done).
+3. Presence and the held question (done): who is here and where, and updates pushed as they happen.
+4. Open: the same for notes (by note) and pdf (nothing to edit); more kinds of change in docs (pictures, tables, links) instead of the whole file.

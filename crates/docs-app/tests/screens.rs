@@ -665,3 +665,91 @@ fn a_typeface_picked_by_name_is_drawn_by_name_and_keeps_its_kind() {
     s.state.set_typeface("");
     assert_eq!(s.state.typeface_name(), None);
 }
+
+fn texts(s: &Screen) -> Vec<String> {
+    s.state.with_doc(|d| {
+        d.paras()
+            .iter()
+            .map(|p| p.runs.iter().map(|r| r.text.as_str()).collect::<String>())
+            .collect()
+    })
+}
+
+fn sent(s: &Screen) -> String {
+    match s.state.take_changes() {
+        Some(docs_app::Change::Ops(b)) => String::from_utf8(b).unwrap(),
+        Some(docs_app::Change::Whole) => "WHOLE".to_string(),
+        None => String::new(),
+    }
+}
+
+#[quench_test::test]
+fn an_edit_is_sent_as_the_paragraphs_it_changed_and_arrives_in_another_page() {
+    let a = open("one\ntwo\nthree");
+    let b = open("one\ntwo\nthree");
+    assert_eq!(sent(&a), "", "the first look only notes the document");
+    a.input("insertText", "X", at(1, 3), at(1, 3));
+    let op = sent(&a);
+    assert!(
+        op.starts_with(r#"{"at":1,"del":1,"ins":[{"#),
+        "{op} {:?}",
+        texts(&a)
+    );
+    assert!(
+        !op.contains("one") && !op.contains("three"),
+        "only the paragraph that changed: {op}"
+    );
+    b.state.apply_remote(op.as_bytes()).unwrap();
+    a.state.change_accepted();
+    assert_eq!(texts(&b), ["one", "twoX", "three"]);
+    // A new paragraph and a deleted one.
+    a.input("insertParagraph", "", at(0, 3), at(0, 3));
+    let op = sent(&a);
+    assert!(op.contains(r#""at":1,"del":0"#), "{op}");
+    b.state.apply_remote(op.as_bytes()).unwrap();
+    a.state.change_accepted();
+    assert_eq!(texts(&b), texts(&a));
+    assert_eq!(sent(&a), "", "nothing more to say once it was taken");
+}
+
+#[quench_test::test]
+fn others_changes_are_merged_around_the_page_own_edits_and_its_change_is_worked_out_again() {
+    let a = open("one\ntwo\nthree");
+    let b = open("one\ntwo\nthree");
+    let _ = (sent(&a), sent(&b));
+    // A adds a paragraph at the top; B, not knowing, edits the last one.
+    a.input("insertParagraph", "", at(0, 3), at(0, 3));
+    b.input("insertText", "!", at(2, 5), at(2, 5));
+    let from_a = sent(&a);
+    let from_b = sent(&b);
+    // The cloud took A's first; B catches up, merging it around its own edit, and then sends its change again from where it is.
+    a.state.change_accepted();
+    b.state.apply_remote(from_a.as_bytes()).unwrap();
+    assert_eq!(texts(&b), ["one", "", "two", "three!"]);
+    let again = sent(&b);
+    assert!(
+        again.starts_with(r#"{"at":3,"del":1"#),
+        "{again} (was {from_b})"
+    );
+    a.state.apply_remote(again.as_bytes()).unwrap();
+    assert_eq!(texts(&a), texts(&b));
+}
+
+#[quench_test::test]
+fn what_a_change_cannot_carry_sends_the_whole_file() {
+    let a = open("one\ntwo");
+    let _ = sent(&a);
+    a.state.set_header("Title");
+    assert_eq!(sent(&a), "WHOLE", "the header is not a paragraph");
+    assert_eq!(sent(&a), "", "and is then the cloud's");
+    a.state.insert_table(2, 2);
+    assert_eq!(
+        sent(&a),
+        "WHOLE",
+        "a table is not sent paragraph by paragraph"
+    );
+    assert!(
+        a.state.apply_remote(br#"{"at":0,"del":0}"#).is_err(),
+        "a change that cannot be read"
+    );
+}

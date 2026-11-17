@@ -11,10 +11,11 @@ pub fn app() -> View {
         "Type here.\n\nThe browser changes nothing by itself: every key becomes an event for the model, and the paragraphs are drawn again.",
     ));
     #[cfg(target_arch = "wasm32")]
-    browser::attach(&state);
+    let restored = browser::attach(&state);
     let cloud = office_cloud_ui::setup();
     {
-        let (out, back, rev) = (state.clone(), state.clone(), state.clone());
+        let (out, back, rev, placed) = (state.clone(), state.clone(), state.clone(), state.clone());
+        let (taker, applier, acker) = (state.clone(), state.clone(), state.clone());
         cloud.bind(office_cloud_ui::Binding {
             kind: "docs",
             export: std::rc::Rc::new(move || {
@@ -24,8 +25,19 @@ pub fn app() -> View {
             import: std::rc::Rc::new(move |name, bytes| back.load_bytes(name, bytes)),
             revision: std::rc::Rc::new(move || u64::from(rev.rev.get())),
             autosave: true,
-            delta: None,
+            position: Some(std::rc::Rc::new(move || placed.place_text())),
+            // Paragraph by paragraph: what is typed is sent as the paragraphs it changed.
+            delta: Some(office_cloud_ui::DeltaHooks {
+                take: std::rc::Rc::new(move || taker.take_changes()),
+                apply: std::rc::Rc::new(move |op| applier.apply_remote(op)),
+                recompute: true,
+                accepted: std::rc::Rc::new(move || acker.change_accepted()),
+            }),
         });
+    }
+    #[cfg(target_arch = "wasm32")]
+    if restored && cloud.context.share.is_none() {
+        cloud.restore_opened();
     }
     #[cfg(target_arch = "wasm32")]
     if cloud.context.share.is_some() {
@@ -48,7 +60,9 @@ mod browser {
     /// How long after the last change the document is kept.
     const QUIET_MS: u32 = 1500;
 
-    pub fn attach(state: &DocState) {
+    /// Whether the last document was brought back.
+    pub fn attach(state: &DocState) -> bool {
+        let mut restored = false;
         state.accept_drops();
         if let Some(code) = quench_ui_web::browser::storage_get("language") {
             state.set_language(&code);
@@ -62,6 +76,7 @@ mod browser {
             let name = quench_ui_web::browser::storage_get(KEY_NAME)
                 .unwrap_or_else(|| "Untitled.docx".to_string());
             if state.load_bytes(&name, &bytes).is_ok() {
+                restored = true;
                 state
                     .status
                     .set(docs_app::i18n::tr("Restored your last document"));
@@ -99,6 +114,7 @@ mod browser {
                 }
             });
         });
+        restored
     }
 }
 

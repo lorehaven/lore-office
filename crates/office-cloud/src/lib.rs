@@ -25,6 +25,10 @@ pub use warehouse::WarehouseStore;
 #[cfg(feature = "server")]
 mod oplog;
 #[cfg(feature = "server")]
+mod presence;
+#[cfg(feature = "server")]
+pub use presence::{Hub, Peer};
+#[cfg(feature = "server")]
 mod store;
 #[cfg(feature = "server")]
 pub use oplog::{OpLog, Since};

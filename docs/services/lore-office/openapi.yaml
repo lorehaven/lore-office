@@ -241,6 +241,70 @@ paths:
         "403": { description: The share only lets the person view. }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { description: Not the latest number. }
+  /api/docs/{id}/presence:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    post:
+      tags: [log]
+      summary: This page is here, at this place
+      description: Also available as `/api/s/{token}/presence` (through a link) and `/api/shared/{owner}/{id}/presence` (shared with a person). In memory only.
+      security: [{ session: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client]
+              properties:
+                client: { type: string, description: Tells this page from the others. }
+                name: { type: string, maxLength: 24 }
+                color: { type: string, description: "#rgb or #rrggbb" }
+                pos: { type: string, description: Where it is, as its app wrote it. }
+                gone: { type: boolean, description: The page left. }
+      responses:
+        "200":
+          description: The room's number.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rev]
+                properties:
+                  rev: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    get:
+      tags: [log]
+      summary: The others here, held until something changes
+      security: [{ session: [] }]
+      parameters:
+        - { name: client, in: query, required: true, schema: { type: string } }
+        - { name: seen, in: query, required: true, description: The room's number the page has., schema: { type: integer, minimum: 0 } }
+        - { name: wait, in: query, description: How long to hold it at most, in milliseconds (up to 25000)., schema: { type: integer, minimum: 0 } }
+      responses:
+        "200":
+          description: The room's number, how many times the document itself changed, and the other pages.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rev, doc, peers]
+                properties:
+                  rev: { type: integer }
+                  doc: { type: integer }
+                  peers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        client: { type: string }
+                        name: { type: string }
+                        color: { type: string }
+                        pos: { type: string }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /api/docs/{id}/meta:
     get:
       tags: [documents]

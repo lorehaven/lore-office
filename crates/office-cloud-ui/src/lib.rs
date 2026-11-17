@@ -20,6 +20,8 @@ use quench_ui::prelude::*;
 mod log;
 use log::LOG_QUIET_MS;
 mod panel;
+mod presence;
+pub use presence::Peer;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -136,6 +138,13 @@ pub struct DeltaHooks {
     pub take: Rc<dyn Fn() -> Option<Change>>,
     /// Make a change someone else made.
     pub apply: Rc<dyn Fn(&[u8]) -> Result<(), String>>,
+    /// For changes that say where they apply by position (paragraph 7), so that they mean nothing once others' changes came in
+    /// before them: the page then sends one change at a time, and when others' changes arrive first it drops its unsent change
+    /// and asks `take` again (the app has merged its own edits into the document). When it is off, the unsent changes are
+    /// applied again after the others' (right for changes that name what they write, like cells).
+    pub recompute: bool,
+    /// The change last taken was accepted by the cloud.
+    pub accepted: Rc<dyn Fn()>,
 }
 
 /// What the app gives the cloud.
@@ -143,6 +152,9 @@ pub struct DeltaHooks {
 pub struct Binding {
     /// `docs`, `sheets`, `notes` or `pdf`.
     pub kind: &'static str,
+    /// Where the person is in the document (a cell range, a paragraph), as text the app reads back from the others' pages; empty
+    /// when it has nothing to show.
+    pub position: Option<Rc<dyn Fn() -> String>>,
     /// The open document as a file: its name (with extension) and bytes; `None` when there is none to save.
     pub export: Rc<dyn Fn() -> Option<(String, Vec<u8>)>>,
     /// Open a file the cloud gave.
@@ -234,6 +246,9 @@ pub struct Cloud {
     pub folder_name: Signal<String>,
     /// There are changes the cloud has not got yet.
     pub dirty: Signal<bool>,
+    /// The other pages that have the open document open.
+    pub peers: Signal<Vec<Peer>>,
+    presence: Rc<presence::Presence>,
     /// A newer version someone else saved, found while there were changes of the person's own.
     pub newer: Signal<Option<DocMeta>>,
     binding: Rc<RefCell<Option<Binding>>>,
@@ -244,6 +259,12 @@ pub struct Cloud {
     quiet: Rc<Cell<u32>>,
     /// How long there have been changes not yet sent (milliseconds).
     waiting: Rc<Cell<u32>>,
+    /// What the browser's storage says the open document is in the cloud (so a reload saves to the same place), and how long
+    /// a change of document has waited to be written there.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    kept: Rc<RefCell<Option<Opened>>>,
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    kept_wait: Rc<Cell<u32>>,
     /// The log of the open document: the version of the file it was fetched or saved at, the latest change this page has made
     /// or applied, and the changes taken from the app that are not sent yet.
     version: Rc<Cell<u64>>,
@@ -292,11 +313,15 @@ impl Cloud {
             folder_name: create_signal(String::new()),
             dirty: create_signal(false),
             newer: create_signal(None),
+            peers: create_signal(Vec::new()),
+            presence: Rc::default(),
             binding: Rc::default(),
             baseline: Rc::default(),
             seen: Rc::default(),
             quiet: Rc::default(),
             waiting: Rc::default(),
+            kept: Rc::default(),
+            kept_wait: Rc::default(),
             version: Rc::default(),
             head: Rc::default(),
             outbox: Rc::default(),
@@ -360,8 +385,100 @@ impl Cloud {
         });
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn kept_key(&self) -> Option<String> {
+        let kind = self.binding.borrow().as_ref()?.kind;
+        Some(format!("lore-office.opened.{kind}"))
+    }
+
+    /// Write down where the open document is in the cloud, so that after a reload (the app brings back its last text) a save
+    /// goes to that document and does not make a new one.
+    ///
+    /// A different document is written only after it has stayed open for 2 s, by when the app has kept its text too: a reload
+    /// before that finds nothing written (a new document), never another document's place beside this one's text.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[allow(clippy::unused_self)]
+    fn keep_opened(&self) {}
+
+    #[cfg(target_arch = "wasm32")]
+    fn keep_opened(&self) {
+        let Some(key) = self.kept_key() else { return };
+        let now = self.opened.get_untracked();
+        let kept = self.kept.borrow().clone();
+        if kept == now {
+            self.kept_wait.set(0);
+            return;
+        }
+        let write = |o: &Option<Opened>| match o {
+            Some(o) => quench_ui_web::browser::storage_set(
+                &key,
+                Some(&format!(
+                    "{}\n{}\n{}\n{}\n{}",
+                    o.id,
+                    o.etag,
+                    o.token.as_deref().unwrap_or(""),
+                    o.owner.as_deref().unwrap_or(""),
+                    u8::from(o.edit)
+                )),
+            ),
+            None => quench_ui_web::browser::storage_set(&key, None),
+        };
+        let same_place = match (&kept, &now) {
+            (Some(a), Some(b)) => {
+                (&a.id, &a.token, &a.owner, a.edit) == (&b.id, &b.token, &b.owner, b.edit)
+            }
+            _ => false,
+        };
+        if same_place {
+            write(&now);
+            *self.kept.borrow_mut() = now;
+            return;
+        }
+        if kept.is_some() {
+            write(&None);
+            *self.kept.borrow_mut() = None;
+        }
+        let waited = self.kept_wait.get().saturating_add(TICK_MS);
+        self.kept_wait.set(waited);
+        if now.is_none() || waited >= 2000 {
+            write(&now);
+            *self.kept.borrow_mut() = now;
+            self.kept_wait.set(0);
+        }
+    }
+
+    /// The app has brought back its last text: it is the open document of the cloud that storage names (if any), so that a save
+    /// goes there. Whatever the cloud has changed since shows as a conflict, as it does for any save.
+    pub fn restore_opened(&self) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let Some(key) = self.kept_key() else { return };
+            let Some(text) = quench_ui_web::browser::storage_get(&key) else {
+                return;
+            };
+            let mut p = text.split('\n');
+            let (Some(id), Some(etag), Some(token), Some(owner), Some(edit)) =
+                (p.next(), p.next(), p.next(), p.next(), p.next())
+            else {
+                return;
+            };
+            let some = |s: &str| (!s.is_empty()).then(|| s.to_string());
+            let o = Opened {
+                id: id.to_string(),
+                etag: etag.to_string(),
+                token: some(token),
+                owner: some(owner),
+                edit: edit == "1",
+            };
+            *self.kept.borrow_mut() = Some(o.clone());
+            self.opened.set(Some(o));
+        }
+    }
+
     /// One look at the document: has it changed, and has it been quiet long enough to send?
     fn look(&self) {
+        self.keep_opened();
+        self.presence_step();
         if self.following() {
             self.look_log();
             return;
@@ -399,6 +516,13 @@ impl Cloud {
     fn poll(&self) {
         let me = self.clone();
         quench_ui::platform::after(POLL_MS, move || {
+            // While the held question works, news comes by itself: this is only the safety net.
+            let slow = me.presence.slow.get().wrapping_add(1);
+            me.presence.slow.set(slow);
+            if me.presence.pushed.get() && !slow.is_multiple_of(8) {
+                me.poll();
+                return;
+            }
             if me.following() {
                 me.catch_up();
             } else {
@@ -1204,7 +1328,33 @@ pub fn cloud_button() -> View {
     };
     let title = cloud.clone();
     let (dot_on, dot_pending) = (cloud.opened.clone(), cloud.dirty.clone());
-    button()
+    let here = cloud.clone();
+    let who = span().class("who").child(View::dynamic(move || {
+        let list = here.others();
+        let mut row = span().class("who-row");
+        for p in list.iter().take(4) {
+            let color = p.color.clone();
+            row = row.child(
+                span()
+                    .class("who-chip")
+                    .attr(
+                        "title",
+                        format!("{} {}", p.name, t("has this document open")),
+                    )
+                    .css("background", move || color.clone())
+                    .text(p.name.chars().next().map(String::from).unwrap_or_default()),
+            );
+        }
+        if list.len() > 4 {
+            row = row.child(
+                span()
+                    .class("who-more")
+                    .text(format!("+{}", list.len() - 4)),
+            );
+        }
+        row.into_view()
+    }));
+    let cloud_tool = button()
         .attr("type", "button")
         // What the button says follows the document: in the cloud and sent, or with changes still to send.
         .attr_fn("title", move || {
@@ -1225,7 +1375,11 @@ pub fn cloud_button() -> View {
                 .class_if("on", move || dot_on.get().is_some())
                 .class_if("pending", move || dot_pending.get()),
         )
-        .on_click(move || cloud.open_panel())
+        .on_click(move || cloud.open_panel());
+    span()
+        .class("cloud-wrap")
+        .child(who)
+        .child(cloud_tool)
         .into_view()
 }
 

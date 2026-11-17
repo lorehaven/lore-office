@@ -47,7 +47,7 @@ impl Cloud {
     }
 
     /// Where the open document's calls begin: `/docs/{id}`, `/s/{token}` or `/shared/{owner}/{id}`.
-    fn prefix(o: &Opened) -> String {
+    pub(crate) fn prefix(o: &Opened) -> String {
         match (&o.token, &o.owner) {
             (Some(token), _) => format!("/s/{token}"),
             (None, Some(owner)) => format!("/shared/{}/{}", enc(owner), o.id),
@@ -79,7 +79,9 @@ impl Cloud {
         };
         let writable = self.writable();
         let mut changed = false;
-        if writable {
+        // One change at a time when positions are what a change says: the next is worked out after the last is accepted.
+        let may_take = writable && (!hooks.recompute || self.outbox.borrow().is_empty());
+        if may_take {
             match (hooks.take)() {
                 Some(Change::Ops(bytes)) => {
                     self.outbox.borrow_mut().push(bytes);
@@ -149,9 +151,14 @@ impl Cloud {
                         .and_then(|v| number(v.get("n")))
                         .unwrap_or_else(|| me.head.get() + 1);
                     me.head.set(n);
-                    let mut outbox = me.outbox.borrow_mut();
-                    if !outbox.is_empty() {
-                        outbox.remove(0);
+                    {
+                        let mut outbox = me.outbox.borrow_mut();
+                        if !outbox.is_empty() {
+                            outbox.remove(0);
+                        }
+                    }
+                    if let Some(h) = me.hooks() {
+                        (h.accepted)();
                     }
                     me.waiting.set(0);
                 }
@@ -271,8 +278,12 @@ impl Cloud {
         self.head.set(head);
         if applied {
             // Their changes are in; this page's own that wait to be sent come after them.
-            for own in self.outbox.borrow().iter() {
-                let _ = (hooks.apply)(own);
+            if hooks.recompute {
+                self.outbox.borrow_mut().clear();
+            } else {
+                for own in self.outbox.borrow().iter() {
+                    let _ = (hooks.apply)(own);
+                }
             }
             self.status
                 .set(t("Updated: someone else changed this document"));

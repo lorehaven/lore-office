@@ -801,6 +801,36 @@ impl SheetState {
         )
     }
 
+    /// Where this page is, for the others who have the document open: `sheet:row:col:row:col` (the selected rectangle).
+    #[must_use]
+    pub fn place_text(&self) -> String {
+        let r = self.selection();
+        format!(
+            "{}:{}:{}:{}:{}",
+            self.active.get_untracked(),
+            r.start.row,
+            r.start.col,
+            r.end.row,
+            r.end.col
+        )
+    }
+
+    /// Another page's place (see [`Self::place_text`]): its sheet and rectangle.
+    #[must_use]
+    pub fn parse_place(text: &str) -> Option<(usize, Range)> {
+        let n: Vec<u32> = text
+            .split(':')
+            .map(|p| p.parse().ok())
+            .collect::<Option<_>>()?;
+        let [sheet, r0, c0, r1, c1] = n[..] else {
+            return None;
+        };
+        Some((
+            usize::try_from(sheet).ok()?,
+            Range::new(CellRef::new(r0, c0), CellRef::new(r1, c1)),
+        ))
+    }
+
     /// Select exactly this rectangle, the active cell at its top left.
     pub fn select_range(&self, range: Range) {
         batch(|| {

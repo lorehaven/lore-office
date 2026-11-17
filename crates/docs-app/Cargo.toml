@@ -26,6 +26,7 @@ office-theme = { workspace = true }
 office-ui = { workspace = true }
 quench-core = { workspace = true }
 quench-image = { workspace = true }
+quench-serde = { workspace = true }
 quench-ui = { workspace = true }
 
 [[test]]

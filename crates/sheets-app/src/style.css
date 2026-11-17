@@ -164,3 +164,7 @@
 /* The plain look of a table follows the theme. */
 .cell.tbl-head { font-weight: 700; background: color-mix(in srgb, var(--office-fg) 16%, var(--office-bg)); border-bottom: 2px solid var(--office-accent); }
 .cell.tbl-band { background: color-mix(in srgb, var(--office-fg) 7%, var(--office-bg)); }
+
+.peers { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.peer-range { position: absolute; box-sizing: border-box; border: 2px solid; pointer-events: none; }
+.peer-tag { position: absolute; left: -2px; bottom: 100%; padding: 0 4px; color: #fff; font-size: 10px; line-height: 14px; white-space: nowrap; border-radius: 3px 3px 3px 0; }

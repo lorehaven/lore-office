@@ -83,6 +83,16 @@ pub struct Site {
     cloud: CloudApi,
     sso: Option<SsoConfig>,
     base: String,
+    /// Sessions renewed a moment ago, by the refresh token they came from: a page and its API calls arrive together, and
+    /// the realm accepts a refresh token once.
+    renewed: tokio::sync::Mutex<Vec<(std::time::Instant, String, Renewed)>>,
+}
+
+/// A fresh pair of tokens and the `set-cookie` values that keep them.
+#[derive(Clone)]
+struct Renewed {
+    access: String,
+    cookies: Vec<String>,
 }
 
 impl std::fmt::Debug for Site {
@@ -188,6 +198,7 @@ impl Site {
         }
         let cloud = CloudApi {
             log: office_cloud::OpLog::new(),
+            hub: office_cloud::Hub::new(),
             store: config.store,
             jwt: config.jwt,
             base: base.clone(),
@@ -200,6 +211,7 @@ impl Site {
             cloud,
             sso: config.sso,
             base,
+            renewed: tokio::sync::Mutex::default(),
         }
     }
 
@@ -265,9 +277,89 @@ impl Site {
     }
 }
 
+impl Site {
+    /// The session of a person whose access token ran out but whose refresh token is still good, renewed as the forge
+    /// services do: the request goes on with the new access token, and the response sets the new cookies, so the person
+    /// is not sent to sign in again while the session at the realm lives.
+    async fn renew(&self, req: Request) -> (Request, Vec<String>) {
+        use quench_auth::domain::{realm, sso_client};
+        use quench_auth::http::domain::cookies::cookie_value;
+        let jwt = &self.cloud.jwt;
+        if !jwt.auth_enabled
+            || user_of(&req, jwt).await.is_some()
+            || denied_user(&req, jwt).await.is_some()
+        {
+            return (req, Vec::new());
+        }
+        let Some(refresh) = cookie_value(&req, &realm::refresh_cookie_name()) else {
+            return (req, Vec::new());
+        };
+        let renewed = {
+            let mut recent = self.renewed.lock().await;
+            recent.retain(|(at, ..)| at.elapsed() < std::time::Duration::from_secs(30));
+            if let Some((.., r)) = recent.iter().find(|(_, from, _)| *from == refresh) {
+                r.clone()
+            } else {
+                let Some(tokens) = sso_client::refresh(&refresh).await else {
+                    return (req, Vec::new());
+                };
+                let r = Renewed {
+                    access: tokens.access_token.clone(),
+                    cookies: vec![
+                        realm::session_cookie(tokens.access_token).to_string(),
+                        realm::refresh_cookie(tokens.refresh_token).to_string(),
+                    ],
+                };
+                recent.push((std::time::Instant::now(), refresh, r.clone()));
+                r
+            }
+        };
+        // The request carries the new access token in place of the old one.
+        let (session, refresh_name) = (realm::session_cookie_name(), realm::refresh_cookie_name());
+        let kept: Vec<String> = req
+            .header("cookie")
+            .unwrap_or_default()
+            .split(';')
+            .map(str::trim)
+            .filter(|c| {
+                let name = c.split('=').next().unwrap_or_default();
+                name != session && name != refresh_name && !c.is_empty()
+            })
+            .map(str::to_string)
+            .collect();
+        let cookie = [kept, vec![format!("{session}={}", renewed.access)]]
+            .concat()
+            .join("; ");
+        let mut headers = req.headers().clone();
+        if let Ok(v) = cookie.parse() {
+            headers.insert("cookie", v);
+        }
+        let mut req = req;
+        let renewed_req = Request::new(
+            req.method().clone(),
+            req.uri().clone(),
+            headers,
+            req.take_body(),
+            req.container().clone(),
+        );
+        (renewed_req, renewed.cookies)
+    }
+}
+
 #[async_trait]
 impl Endpoint for Site {
-    async fn call(&self, mut req: Request) -> Response {
+    async fn call(&self, req: Request) -> Response {
+        let (req, cookies) = self.renew(req).await;
+        let mut response = self.route(req).await;
+        for c in cookies {
+            response = response.append_header("set-cookie", c);
+        }
+        response
+    }
+}
+
+impl Site {
+    async fn route(&self, mut req: Request) -> Response {
         let full = req.uri().path().to_string();
         let path = if self.base.is_empty() {
             full.as_str()

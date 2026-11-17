@@ -66,6 +66,11 @@ fn query(req: &Request, key: &str) -> Option<String> {
     })
 }
 
+/// `text` as a JSON string.
+fn quoted(text: &str) -> String {
+    quench_serde::json::to_string(&text.to_string())
+}
+
 fn reply(status: StatusCode, text: &str) -> Response {
     Response::text(status, text)
 }
@@ -137,6 +142,8 @@ pub struct CloudApi {
     pub login: String,
     /// The numbering of each document's changes.
     pub log: office_cloud::OpLog,
+    /// Who has each document open, and the waiting for news of it.
+    pub hub: office_cloud::Hub,
 }
 
 impl std::fmt::Debug for CloudApi {
@@ -218,9 +225,12 @@ impl CloudApi {
             .snapshot(&*self.store, owner, id, &name, &kind, bytes, at, if_match)
             .await
         {
-            Ok((meta, head)) => json(&meta)
-                .header("x-version", meta.version.to_string())
-                .header("x-head", head.to_string()),
+            Ok((meta, head)) => {
+                self.hub.touch(owner, id).await;
+                json(&meta)
+                    .header("x-version", meta.version.to_string())
+                    .header("x-head", head.to_string())
+            }
             Err(e) => failed(&e),
         }
     }
@@ -241,11 +251,91 @@ impl CloudApi {
             return reply(StatusCode::BAD_REQUEST, "a change is JSON");
         }
         match self.log.append(&*self.store, owner, id, base, &bytes).await {
-            Ok(n) => Response::text(StatusCode::OK, format!("{{\"n\":{n}}}"))
-                .header("content-type", "application/json")
-                .header("x-head", n.to_string()),
+            Ok(n) => {
+                self.hub.touch(owner, id).await;
+                Response::text(StatusCode::OK, format!("{{\"n\":{n}}}"))
+                    .header("content-type", "application/json")
+                    .header("x-head", n.to_string())
+            }
             Err(e) => failed(&e),
         }
+    }
+
+    /// `POST .../presence`: this page is here, at this place (`{"client","name","color","pos","gone"}`).
+    async fn presence_post(&self, req: &mut Request, owner: &str, id: &str) -> Response {
+        let bytes = match self.body(req).await {
+            Ok(b) => b,
+            Err(r) => return r,
+        };
+        let Ok(value) = quench_serde::json::parse(&String::from_utf8_lossy(&bytes)) else {
+            return reply(StatusCode::BAD_REQUEST, "presence is JSON");
+        };
+        let text = |k: &str| {
+            value
+                .get(k)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
+        let client = text("client");
+        if client.is_empty() {
+            return reply(StatusCode::BAD_REQUEST, "client names the page");
+        }
+        let gone = value
+            .get("gone")
+            .and_then(quench_serde::Value::as_bool)
+            .unwrap_or(false);
+        let peer = office_cloud::Peer {
+            client,
+            name: text("name"),
+            color: text("color"),
+            pos: text("pos"),
+        };
+        let rev = self.hub.update(owner, id, peer, gone).await;
+        Response::text(StatusCode::OK, format!("{{\"rev\":{rev}}}"))
+            .header("content-type", "application/json")
+    }
+
+    /// `GET .../presence?client=c&seen=n&wait=ms`: the others here, held until something changes from number `n` (or `wait`).
+    async fn presence_get(&self, req: &Request, owner: &str, id: &str) -> Response {
+        let client = query(req, "client").unwrap_or_default();
+        let seen = query(req, "seen")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        let wait = query(req, "wait")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0)
+            .min(25_000);
+        let (rev, docs, peers) = self
+            .hub
+            .wait(
+                owner,
+                id,
+                &client,
+                seen,
+                std::time::Duration::from_millis(wait),
+            )
+            .await;
+        let list: Vec<String> = peers
+            .iter()
+            .map(|p| {
+                format!(
+                    "{{\"client\":{},\"name\":{},\"color\":{},\"pos\":{}}}",
+                    quoted(&p.client),
+                    quoted(&p.name),
+                    quoted(&p.color),
+                    quoted(&p.pos),
+                )
+            })
+            .collect();
+        Response::text(
+            StatusCode::OK,
+            format!(
+                "{{\"rev\":{rev},\"doc\":{docs},\"peers\":[{}]}}",
+                list.join(",")
+            ),
+        )
+        .header("content-type", "application/json")
     }
 
     /// `GET .../ops?after=n`: the changes after number `n`.
@@ -342,6 +432,16 @@ impl CloudApi {
                     Err(e) => failed(&e),
                 },
                 _ => reply(StatusCode::METHOD_NOT_ALLOWED, "GET or POST"),
+            };
+        }
+        if let ["s", token, "presence"] = parts.as_slice() {
+            return match office_cloud::share_meta(&*self.store, token).await {
+                Ok((share, _)) => match method.as_str() {
+                    "GET" => self.presence_get(&req, &share.owner, &share.doc).await,
+                    "POST" => self.presence_post(&mut req, &share.owner, &share.doc).await,
+                    _ => reply(StatusCode::METHOD_NOT_ALLOWED, "GET or POST"),
+                },
+                Err(e) => failed(&e),
             };
         }
         if let ["s", token, "meta"] = parts.as_slice() {
@@ -477,6 +577,21 @@ impl CloudApi {
                     Err(e) => failed(&e),
                 }
             }
+            ("GET" | "POST", ["shared", owner, id, "presence"]) => {
+                match office_cloud::granted_meta(store, &user, owner, id).await {
+                    Ok(_) if method == "GET" => self.presence_get(&req, owner, id).await,
+                    Ok(_) => self.presence_post(&mut req, owner, id).await,
+                    Err(e) => failed(&e),
+                }
+            }
+            ("GET", ["docs", id, "presence"]) => match store.meta(&user, id).await {
+                Ok(_) => self.presence_get(&req, &user, id).await,
+                Err(e) => failed(&e),
+            },
+            ("POST", ["docs", id, "presence"]) => match store.meta(&user, id).await {
+                Ok(_) => self.presence_post(&mut req, &user, id).await,
+                Err(e) => failed(&e),
+            },
             ("GET", ["shared", owner, id, "ops"]) => {
                 match office_cloud::granted_meta(store, &user, owner, id).await {
                     Ok(_) => self.ops_get(&req, owner, id).await,
@@ -535,6 +650,7 @@ impl CloudApi {
             ("DELETE", ["docs", id]) => {
                 let done = store.delete(&user, id).await;
                 self.log.forget(&user, id).await;
+                self.hub.touch(&user, id).await;
                 done.map_or_else(|e| failed(&e), |()| Response::new(StatusCode::NO_CONTENT))
             }
             ("POST", ["docs", id, "share"]) => {

@@ -129,6 +129,7 @@ fn setup(
             }),
             revision: Rc::new(|| 0),
             autosave: false,
+            position: None,
             delta: None,
         });
         c.install();
@@ -258,6 +259,7 @@ fn a_new_document_is_saved_as_new_and_links_are_made_and_withdrawn() {
         import: Rc::new(|_, _| Ok(())),
         revision: Rc::new(|| 0),
         autosave: false,
+        position: None,
         delta: None,
     });
     cloud.opened.set(None);
@@ -306,6 +308,7 @@ fn a_page_opened_from_a_link_loads_it_and_saves_through_it_and_failures_are_said
         import: Rc::new(|_, _| Ok(())),
         revision: Rc::new(|| 0),
         autosave: false,
+        position: None,
         delta: None,
     });
     down.save();
@@ -418,6 +421,7 @@ fn sync(autosave: bool) -> Sync {
             }),
             revision: Rc::new(move || read.get()),
             autosave,
+            position: None,
             delta: None,
         });
         c.install();
@@ -705,6 +709,8 @@ struct LogState {
     head: u64,
     version: u64,
     ops: Vec<(u64, String)>,
+    /// Whether the service holds the question about who is here (the tests that do not look at it get a 404).
+    presence: bool,
 }
 
 struct LogServer {
@@ -772,6 +778,12 @@ impl Transport for LogServer {
                     )
                 }
             }
+            ("GET", "/docs/ab12/presence") if st.presence => reply(
+                200,
+                &[],
+                r##"{"rev":2,"doc":1,"peers":[{"client":"bb","name":"Fox","color":"#3b82d6","pos":"1,2"},{"client":"aa","name":"Fox","color":"#d9534f","pos":""}]}"##,
+            ),
+            ("POST", "/docs/ab12/presence") => reply(200, &[], r#"{"rev":2}"#),
             ("POST", "/docs/ab12/ops") => {
                 if param("base") == Some(st.head) {
                     st.head += 1;
@@ -844,6 +856,7 @@ fn following() -> Following {
             }),
             revision: Rc::new(|| 0),
             autosave: true,
+            position: None,
             delta: Some(office_cloud_ui::DeltaHooks {
                 take: Rc::new(move || queue.borrow_mut().pop_front()),
                 apply: Rc::new(move |op| {
@@ -851,6 +864,8 @@ fn following() -> Following {
                         .push(String::from_utf8_lossy(op).to_string());
                     Ok(())
                 }),
+                recompute: false,
+                accepted: Rc::new(|| {}),
             }),
         });
         c.install();
@@ -872,7 +887,7 @@ fn requests(f: &Following, method: &str) -> Vec<(String, String)> {
     f.seen
         .borrow()
         .iter()
-        .filter(|s| s.0 == method)
+        .filter(|s| s.0 == method && !s.1.contains("/presence"))
         .map(|s| (s.1.clone(), String::from_utf8_lossy(&s.3).to_string()))
         .collect()
 }
@@ -1030,4 +1045,43 @@ fn making_the_document_in_the_cloud_sends_the_file_whole_and_what_was_waiting_is
         requests(&f, "POST").is_empty(),
         "no change that is already in the file"
     );
+}
+
+#[quench_test::test]
+fn others_in_the_document_are_shown_with_told_apart_names_and_a_change_to_the_document_is_looked_at_at_once()
+ {
+    let f = following();
+    f.server.borrow_mut().presence = true;
+    f.cloud.open_doc("ab12");
+    let asked = |f: &Following| {
+        f.seen
+            .borrow()
+            .iter()
+            .filter(|s| s.1.contains("/ops?after="))
+            .count()
+    };
+    let before = asked(&f);
+    f.clock.advance(400.0);
+    let names: Vec<String> = f.cloud.others().into_iter().map(|p| p.name).collect();
+    assert_eq!(names, ["Fox", "Fox 2"], "the same name twice gets a number");
+    assert!(
+        asked(&f) > before,
+        "the document changed: asked for its changes now"
+    );
+    // It says it is here.
+    let says: Vec<String> = f
+        .seen
+        .borrow()
+        .iter()
+        .filter(|s| s.0 == "POST" && s.1.ends_with("/presence"))
+        .map(|s| String::from_utf8_lossy(&s.3).to_string())
+        .collect();
+    assert!(says[0].contains(r#""name":"alice""#), "{says:?}");
+    // Leaving the document says so.
+    f.cloud.opened.set(None);
+    f.clock.advance(400.0);
+    assert!(f.seen.borrow().iter().any(|s| s.0 == "POST"
+        && s.1.ends_with("/presence")
+        && String::from_utf8_lossy(&s.3).contains(r#""gone":true"#)));
+    assert!(f.cloud.others().is_empty());
 }

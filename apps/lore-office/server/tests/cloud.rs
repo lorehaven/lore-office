@@ -943,3 +943,124 @@ fn changes_are_numbered_by_the_service_and_folded_into_a_snapshot_by_whoever_is_
         );
     });
 }
+
+#[quench_test::test]
+fn pages_tell_where_they_are_and_are_told_at_once_when_anything_about_the_document_changes() {
+    run(async {
+        let r = rig("/lore-office", 1 << 20).await;
+        let (alice, bob) = ([("x-lore-user", "alice")], [("x-lore-user", "bob")]);
+        let made = r
+            .call(
+                "PUT",
+                "/lore-office/api/docs?name=Book.xlsx&kind=sheets",
+                &alice,
+                b"v0",
+            )
+            .await;
+        let id = quench_serde::json::parse(&made.text())
+            .unwrap()
+            .get("id")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        let room = format!("/lore-office/api/docs/{id}/presence");
+        let here = |client: &str, pos: &str| {
+            format!(r##"{{"client":"{client}","name":"Otter","color":"#3366cc","pos":"{pos}"}}"##)
+        };
+        // Someone who is not the owner and was given nothing cannot be in the room.
+        assert_eq!(
+            r.call("POST", &room, &bob, here("b1", "0,0").as_bytes())
+                .await
+                .status,
+            404
+        );
+        assert_eq!(
+            r.call("POST", &room, &alice, here("a1", "0,0").as_bytes())
+                .await
+                .status,
+            200
+        );
+        // Nothing to say about others yet: the answer waits for the limit, with the same number.
+        let alone = r
+            .call(
+                "GET",
+                &format!("{room}?client=a1&seen=0&wait=0"),
+                &alice,
+                b"",
+            )
+            .await;
+        assert_eq!(alone.status, 200);
+        let rev = |t: &str| {
+            quench_serde::json::parse(t)
+                .unwrap()
+                .get("rev")
+                .unwrap()
+                .as_u64()
+                .unwrap()
+        };
+        let seen = rev(&alone.text());
+        assert!(alone.text().contains(r#""peers":[]"#), "{}", alone.text());
+        let held = r
+            .call(
+                "GET",
+                &format!("{room}?client=a1&seen={seen}&wait=150"),
+                &alice,
+                b"",
+            )
+            .await;
+        assert_eq!(rev(&held.text()), seen, "nothing changed");
+        // Another page arrives: the first is told with the place.
+        let wait_uri = format!("{room}?client=a1&seen={seen}&wait=5000");
+        let waiting = r.call("GET", &wait_uri, &alice, b"");
+        let arrives = async {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            r.call(
+                "POST",
+                &room,
+                &alice,
+                here("a2", "3,4").replace("Otter", "Fox").as_bytes(),
+            )
+            .await
+        };
+        let (told, _) = tokio::join!(waiting, arrives);
+        assert!(
+            told.text().contains(r#""name":"Fox""#) && told.text().contains("3,4"),
+            "{}",
+            told.text()
+        );
+        assert!(
+            !told.text().contains("a1"),
+            "a page is not told about itself"
+        );
+        let seen = rev(&told.text());
+        // A save of the document wakes it too.
+        let wait_uri = format!("{room}?client=a1&seen={seen}&wait=5000");
+        let waiting = r.call("GET", &wait_uri, &alice, b"");
+        let saves = async {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            r.call(
+                "POST",
+                &format!("/lore-office/api/docs/{id}/ops?base=0"),
+                &alice,
+                br#"{"cells":[]}"#,
+            )
+            .await
+        };
+        let (woken, _) = tokio::join!(waiting, saves);
+        assert_ne!(rev(&woken.text()), seen);
+        // Leaving takes the page out at once.
+        let seen = rev(&woken.text());
+        let gone = r"{\x22client\x22:\x22a2\x22,\x22gone\x22:true}".replace(r"\x22", "\"");
+        r.call("POST", &room, &alice, gone.as_bytes()).await;
+        let after = r
+            .call(
+                "GET",
+                &format!("{room}?client=a1&seen={seen}&wait=0"),
+                &alice,
+                b"",
+            )
+            .await;
+        assert!(after.text().contains(r#""peers":[]"#), "{}", after.text());
+    });
+}

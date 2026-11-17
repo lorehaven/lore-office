@@ -2485,6 +2485,7 @@ fn grid(
         .child(shown)
         .child(merged_layer(state, window, None, None))
         .child(range_overlay(state))
+        .child(peers_layer(state))
         .child(cursor(state))
         .child(focus_target(state))
         .child(cell_editor(state))
@@ -2980,6 +2981,43 @@ fn range_overlay(state: &SheetState) -> Element {
             .on(EventKind::PointerDown, move |_| press.begin_fill()),
     )
     .child(fill_preview(state))
+}
+
+/// The rectangles other pages that have the document open have selected, each in its own colour with its name.
+fn peers_layer(state: &SheetState) -> View {
+    let Some(cloud) = office_cloud_ui::current() else {
+        return View::Empty;
+    };
+    let st = state.clone();
+    View::dynamic(move || {
+        let sheet = st.active.get();
+        let mut layer = div().class("peers").attr("role", "presentation");
+        for p in cloud.others() {
+            let Some((on, range)) = SheetState::parse_place(&p.pos) else {
+                continue;
+            };
+            if on != sheet {
+                continue;
+            }
+            let (color, tint) = (p.color.clone(), p.color.clone());
+            let tag = p.name.clone();
+            let tag_color = p.color.clone();
+            layer = layer.child(
+                place(div().class("peer-range"), &st, move || range)
+                    .css("border-color", move || color.clone())
+                    .css("background", move || {
+                        format!("color-mix(in srgb, {tint} 12%, transparent)")
+                    })
+                    .child(
+                        span()
+                            .class("peer-tag")
+                            .css("background", move || tag_color.clone())
+                            .text(tag),
+                    ),
+            );
+        }
+        layer.into_view()
+    })
 }
 
 /// The cells a fill being dragged would cover.

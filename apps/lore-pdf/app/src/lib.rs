@@ -30,6 +30,7 @@ pub fn app() -> View {
             revision: std::rc::Rc::new(move || u64::from(rev.rev.get())),
             // Changes to a PDF (marks, moved pages) are sent when the person saves, not by themselves.
             autosave: false,
+            position: None,
             delta: None,
         });
     }

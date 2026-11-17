@@ -681,6 +681,7 @@ fn para_view(
     marker: &str,
     fonts: &[(u32, String)],
     new_page: bool,
+    here: Rc<dyn Fn() -> String>,
 ) -> View {
     let tag = match p.kind {
         Kind::Heading(1) => "h1",
@@ -692,6 +693,8 @@ fn para_view(
         _ => "p",
     };
     let mut el = element(tag);
+    // Where other people are: a bar in the margin, in the colour of each.
+    el = el.css("box-shadow", move || here());
     el = el.class(match p.align {
         Align::Left => "",
         Align::Center => "ac",
@@ -860,12 +863,42 @@ fn page(state: &DocState) -> Element {
         state.restore.clone(),
         state.clone(),
     );
+    // The paragraphs' keys in order (to tell which paragraph a place in the document is), and what shows where others are.
+    let para_keys: Signal<Vec<u64>> = create_signal(Vec::new());
+    let keys_set = para_keys.clone();
+    let marks = move |key: u64| -> Rc<dyn Fn() -> String> {
+        let para_keys = para_keys.clone();
+        Rc::new(move || {
+            let (Some(cloud), ks) = (office_cloud_ui::current(), para_keys.get()) else {
+                return "none".to_string();
+            };
+            let mut shadows: Vec<String> = Vec::new();
+            for p in cloud.others() {
+                let at = p
+                    .pos
+                    .strip_prefix('p')
+                    .and_then(|n| n.parse::<usize>().ok());
+                if at.is_some_and(|i| ks.get(i) == Some(&key)) {
+                    shadows.push(format!(
+                        "{}px 0 0 {}",
+                        -3_isize - 3 * isize::try_from(shadows.len()).unwrap_or(0),
+                        p.color
+                    ));
+                }
+            }
+            if shadows.is_empty() {
+                "none".to_string()
+            } else {
+                shadows.join(",")
+            }
+        })
+    };
     let list = {
         let rev = state.rev.clone();
         View::keyed(
             move || {
                 let _ = rev.get();
-                paras.with_doc(|d| {
+                let list = paras.with_doc(|d| {
                     let markers = d.list_markers();
                     // Where the pages end, as the print layout has them: the paragraph a new page starts at gets the gap.
                     let breaks: std::collections::HashSet<usize> =
@@ -906,12 +939,14 @@ fn page(state: &DocState) -> Element {
                             )
                         })
                         .collect::<Vec<_>>()
-                })
+                });
+                keys_set.set(list.iter().map(|x| x.0).collect());
+                list
             },
             |(k, ..): &KeyedPara| *k,
             {
                 let st = state.clone();
-                move |(_, p, urls, (cols, pic, marker, fonts, new_page)): KeyedPara| {
+                move |(key, p, urls, (cols, pic, marker, fonts, new_page)): KeyedPara| {
                     para_view(
                         &st,
                         &p,
@@ -921,6 +956,7 @@ fn page(state: &DocState) -> Element {
                         &marker,
                         &fonts,
                         new_page,
+                        marks(key),
                     )
                 }
             },

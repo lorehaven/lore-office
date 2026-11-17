@@ -56,6 +56,8 @@ The pages' scripts load from `/_quench/`, so the ingress must route that path to
 
 The overlay `forge` carries what lore-office needs from gatehouse: two clients (`lore-office`, redirect path `/ui/auth/callback`, scope `lore-office`; and `lore-office-warehouse`, scope `warehouse`), the service `lore-office` in the permission catalogue with `home = true` (its card on gatehouse's home page, which links to `LORE_OFFICE_UI_URL`, `https://ennor.ddns.net/lore-office/`) and the grants in the viewer and editor templates. Gatehouse serves the card's icon from a fixed list compiled into it (`ICONS` in `gatehouse-core`, the pictures in `services/gatehouse`); `lore-office` needs an entry there.
 
+The session is the realm's (`forge_session`, with `forge_refresh` beside it). The access token is short; when a request arrives with it expired or missing and the refresh token is still good, the service trades the refresh token at gatehouse (the way the forge services do), carries on with the new access token and sets both cookies again, so a person who is signed in at the realm stays signed in here for as long as their session there lives, across restarts of lore-office too. A page and its API calls arrive together and the realm accepts a refresh token once, so the new tokens are remembered for 30 s and shared by the requests that came with the same old one.
+
 ## Order
 
 1. Apply the `forge` overlay (gatehouse learns the clients and the permission), and make sure gatehouse picked up the new config.

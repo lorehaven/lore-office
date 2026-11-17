@@ -30,6 +30,10 @@ html, body, #app { height: 100%; margin: 0; background: var(--office-bg); color:
 .icon { display: inline-block; width: 1.1em; height: 1.1em; background: currentColor; -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
 .icon-home { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11.5 12 4l9 7.5'/%3E%3Cpath d='M5.5 10v10h13V10'/%3E%3Cpath d='M10 20v-5.5h4V20'/%3E%3C/svg%3E"); }
 .icon-cloud { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.9 9.6 4.2 4.2 0 0 1 17.5 18Z'/%3E%3C/svg%3E"); }
+.cloud-wrap { display: inline-flex; align-items: center; gap: 6px; }
+.who-row { display: inline-flex; gap: 3px; align-items: center; }
+.who-chip { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 600; }
+.who-more { font-size: 11px; color: var(--office-head-fg); }
 .cloud-button { display: inline-flex; align-items: center; gap: 6px; }
 .home-link { display: flex; align-items: center; margin-right: 6px; padding: 0 8px; font-size: 18px; line-height: 1; color: var(--office-head-fg); text-decoration: none; border-radius: var(--office-radius); }
 .home-link:hover { color: var(--office-accent); background: color-mix(in srgb, var(--office-fg) 8%, transparent); }

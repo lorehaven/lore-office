@@ -44,6 +44,17 @@ For documents that are followed by cell (sheets), the stored file is the documen
 
 `GET /api/docs/{id}`, `GET /api/docs/{id}/meta` and their link and share counterparts also carry `x-version` (the stored file's version) and `x-head` (the latest change number). The service numbers the changes with one lock and keeps the latest numbers in memory, so it assumes one replica (see [Sync and presence](../../guides/sync-and-presence.md)).
 
+## Presence
+
+Who has a document open, and where. In memory only; available for the person's own documents (`/api/docs/{id}`), through a link (`/api/s/{token}`) and shared with a person (`/api/shared/{owner}/{id}`), with the access the document needs for reading.
+
+| Call | Does |
+|---|---|
+| `POST /api/docs/{id}/presence` | the page is here: `{"client": "<id>", "name": "...", "color": "#rrggbb", "pos": "<place>", "gone": false}`; with `gone: true` it left. Answers `{"rev": n}` |
+| `GET /api/docs/{id}/presence?client=<id>&seen=<n>&wait=<ms>` | held until the room's number is not `n` (a page arrived, moved or left; the document was saved, changed or deleted), at most `wait` ms (up to 25000). Answers `{"rev": n, "doc": <times the document changed>, "peers": [{"client","name","color","pos"}, ...]}` with the other pages, not the asker |
+
+A page that is not heard from for 12 s is dropped; asking counts as being heard from.
+
 ## Folders
 
 | Call | Does |

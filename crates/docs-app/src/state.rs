@@ -51,8 +51,10 @@ const MAX_PICTURE_WIDTH: f64 = 432.0;
 
 #[derive(Clone)]
 pub struct DocState {
-    doc: Rc<RefCell<Doc>>,
+    pub(crate) doc: Rc<RefCell<Doc>>,
     history: Rc<RefCell<History>>,
+    /// What the cloud is known to have (see `sync`).
+    pub(crate) track: Rc<RefCell<crate::sync::Track>>,
     /// Bumped when the document changes.
     pub rev: Signal<u32>,
     /// Where the selection is, as the browser reported it.
@@ -95,6 +97,7 @@ impl DocState {
         Self {
             doc: Rc::new(RefCell::new(doc)),
             history: Rc::default(),
+            track: Rc::default(),
             rev: create_signal(0),
             selection: create_signal(Range::default()),
             restore: create_signal(String::new()),
@@ -136,7 +139,7 @@ impl DocState {
         });
     }
 
-    fn bump(&self) {
+    pub(crate) fn bump(&self) {
         self.rev.set(self.rev.get_untracked().wrapping_add(1));
         if let Some(f) = self.changed.borrow().clone() {
             f();
@@ -158,6 +161,7 @@ impl DocState {
     // ---- files ----
 
     fn replace_document(&self, doc: Doc, package: Package, name: &str) {
+        self.track.borrow_mut().reset(&doc);
         *self.doc.borrow_mut() = doc;
         *self.package.borrow_mut() = package;
         *self.history.borrow_mut() = History::default();
@@ -516,6 +520,12 @@ impl DocState {
     }
 
     // ---- zoom ----
+
+    /// Where this page is, for the others who have the document open: `p` and the paragraph the caret is in.
+    #[must_use]
+    pub fn place_text(&self) -> String {
+        format!("p{}", self.selection.get_untracked().focus.para)
+    }
 
     /// Zoom in (`1`) or out (`-1`) one step; `0` goes back to 100 percent.
     pub fn zoom_by(&self, step: i32) {

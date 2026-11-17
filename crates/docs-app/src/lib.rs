@@ -15,10 +15,12 @@
 
 pub mod i18n;
 mod state;
+mod sync;
 mod view;
 
 /// How the editor looks.
 pub const STYLE: &str = include_str!("style.css");
 
+pub use office_cloud_ui::Change;
 pub use state::{DocState, Range};
 pub use view::docs_view;

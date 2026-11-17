@@ -15,11 +15,11 @@ const MAX_KEPT: usize = 3_500_000;
 pub fn app() -> View {
     let state = SheetState::new(Workbook::new());
     #[cfg(target_arch = "wasm32")]
-    browser::attach(&state);
+    let restored = browser::attach(&state);
     let cloud = office_cloud_ui::setup();
     {
         let (out, back, rev) = (state.clone(), state.clone(), state.clone());
-        let (taker, applier) = (state.clone(), state.clone());
+        let (taker, applier, placed) = (state.clone(), state.clone(), state.clone());
         cloud.bind(office_cloud_ui::Binding {
             kind: "sheets",
             export: std::rc::Rc::new(move || {
@@ -29,12 +29,19 @@ pub fn app() -> View {
             import: std::rc::Rc::new(move |name, bytes| back.load_bytes(name, bytes)),
             revision: std::rc::Rc::new(move || rev.rev.get()),
             autosave: true,
+            position: Some(std::rc::Rc::new(move || placed.place_text())),
             // Cell by cell: what is typed is sent as the cells it wrote, and others' cells come in the same way.
             delta: Some(office_cloud_ui::DeltaHooks {
                 take: std::rc::Rc::new(move || taker.take_changes()),
                 apply: std::rc::Rc::new(move |op| applier.apply_remote(op)),
+                recompute: false,
+                accepted: std::rc::Rc::new(|| {}),
             }),
         });
+    }
+    #[cfg(target_arch = "wasm32")]
+    if restored && cloud.context.share.is_none() {
+        cloud.restore_opened();
     }
     #[cfg(target_arch = "wasm32")]
     if cloud.context.share.is_some() {
@@ -81,7 +88,9 @@ mod browser {
     /// Where the language is kept: the key forge's script fills from its `qlocale` cookie.
     const KEY_LANGUAGE: &str = "language";
 
-    pub fn attach(state: &SheetState) {
+    /// Whether the last workbook was brought back.
+    pub fn attach(state: &SheetState) -> bool {
+        let mut restored = false;
         state.accept_drops();
         if let Some(code) = quench_ui_web::browser::storage_get(KEY_LANGUAGE) {
             state.set_language(&code);
@@ -107,7 +116,10 @@ mod browser {
             let name = quench_ui_web::browser::storage_get(KEY_NAME)
                 .unwrap_or_else(|| "Untitled.xlsx".to_string());
             match state.load_bytes(&name, &bytes) {
-                Ok(()) => state.status.set("Restored your last workbook".to_string()),
+                Ok(()) => {
+                    restored = true;
+                    state.status.set("Restored your last workbook".to_string());
+                }
                 Err(e) => state
                     .status
                     .set(format!("Could not restore the last workbook: {e}")),
@@ -126,6 +138,7 @@ mod browser {
                 }
             });
         });
+        restored
     }
 
     fn save(state: &SheetState) {

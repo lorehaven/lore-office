@@ -752,7 +752,83 @@ impl Default for Doc {
     }
 }
 
+impl Para {
+    /// Whether two paragraphs say the same, whatever their ids (the id only tells paragraphs apart on one screen).
+    #[must_use]
+    pub fn same(&self, other: &Self) -> bool {
+        (
+            &self.kind,
+            &self.align,
+            &self.cell,
+            &self.picture,
+            &self.fmt,
+            &self.runs,
+        ) == (
+            &other.kind,
+            &other.align,
+            &other.cell,
+            &other.picture,
+            &other.fmt,
+            &other.runs,
+        )
+    }
+}
+
 impl Doc {
+    /// Whether everything but the paragraphs is alike in both: the lists the paragraphs point into, the header and footer, the
+    /// paper and the tables.
+    #[must_use]
+    pub fn same_apart_from_paras(&self, other: &Self) -> bool {
+        (
+            &self.links,
+            &self.pictures,
+            &self.fonts,
+            &self.header,
+            &self.footer,
+            self.paper,
+            &self.tables,
+        ) == (
+            &other.links,
+            &other.pictures,
+            &other.fonts,
+            &other.header,
+            &other.footer,
+            other.paper,
+            &other.tables,
+        )
+    }
+
+    /// Replace `del` paragraphs from `at` by `paras` (they get ids of this document); the document keeps at least one.
+    pub fn splice_paras(&mut self, at: usize, del: usize, paras: Vec<Para>) {
+        let at = at.min(self.paras.len());
+        let end = (at + del).min(self.paras.len());
+        let made: Vec<Para> = paras
+            .into_iter()
+            .map(|mut p| {
+                p.id = self.next_id;
+                self.next_id += 1;
+                p
+            })
+            .collect();
+        self.paras.splice(at..end, made);
+        if self.paras.is_empty() {
+            let id = self.next_id;
+            self.next_id += 1;
+            self.paras.push(Para {
+                id,
+                kind: Kind::Paragraph,
+                align: Align::Left,
+                cell: None,
+                picture: None,
+                fmt: ParaFmt::default(),
+                runs: vec![Run {
+                    text: String::new(),
+                    style: Style::default(),
+                }],
+            });
+        }
+    }
+
     /// An empty document: one empty paragraph.
     #[must_use]
     pub fn new() -> Self {
