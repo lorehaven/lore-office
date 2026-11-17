@@ -23,7 +23,11 @@ pub use model::{
 pub use warehouse::WarehouseStore;
 
 #[cfg(feature = "server")]
+mod oplog;
+#[cfg(feature = "server")]
 mod store;
+#[cfg(feature = "server")]
+pub use oplog::{OpLog, Since};
 #[cfg(feature = "server")]
 pub use store::{
     Result, Storage, grant_doc, granted_meta, open_granted, open_share, save_granted, save_share,

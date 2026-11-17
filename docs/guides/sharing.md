@@ -25,9 +25,11 @@ When you are signed in, the cloud is where **Ctrl+S** saves (docs, sheets and no
 
 A document that is in the cloud is kept up to date in both directions:
 
-* **docs and sheets send your changes by themselves**, two seconds after the last change. The Cloud button shows a dot: filled when the cloud has your latest version, hollow while changes are still to be sent. notes and pdf save when you ask.
-* **Every five seconds the page asks whether someone else saved** (`GET /api/docs/{id}/meta`, or `/api/s/{token}/meta` through a link; a few hundred bytes). If so and you have changed nothing since, their version replaces the one on the screen ("Updated: someone else changed this document"), so there is no need to reload the page.
+* **docs and sheets send your changes by themselves**, one second after the last change, or eight seconds after the first unsaved one when you keep typing without a pause. The Cloud button shows a dot: filled when the cloud has your latest version, hollow while changes are still to be sent. notes and pdf save when you ask.
+* **Every two seconds the page asks whether someone else saved** (`GET /api/docs/{id}/meta`, or `/api/s/{token}/meta` through a link; a few hundred bytes). If so and you have changed nothing since, their version replaces the one on the screen ("Updated: someone else changed this document"), so there is no need to reload the page.
 * **If you have changes of your own** when theirs arrives, nothing is replaced: a banner offers *Load their version* (yours is discarded) or *Keep mine* (the next save goes over theirs). Sending changes by themselves stops until you choose.
+
+What comes next (change logs instead of whole documents, who is editing where) is in [Sync and presence](sync-and-presence.md).
 
 This is whole-document sync, not live co-editing: the page that saves last, after choosing, wins, and an update replaces the document, so the caret and the undo history start again.
 

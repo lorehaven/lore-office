@@ -1,7 +1,7 @@
 ---
 title: Theme and language
 parent: Guides
-nav_order: 5
+nav_order: 6
 ---
 
 The look and the language are the person's, kept in the browser, and the same in all four apps.

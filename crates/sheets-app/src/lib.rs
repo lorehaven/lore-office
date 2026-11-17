@@ -38,6 +38,7 @@ pub mod i18n;
 mod input;
 pub mod rules;
 mod state;
+pub mod sync;
 mod view;
 
 pub use axis::{Axes, Axis};

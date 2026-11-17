@@ -41,6 +41,7 @@ office-cloud = { workspace = true, features = ["server"] }   # and the storage (
 | `list(user)` | the person's documents |
 | `get(user, id)` | a document's `DocMeta` and bytes |
 | `meta(user, id)` | the `DocMeta` alone |
+| `put_op`, `ops_after`, `ops_head`, `drop_ops`, `set_version` | the files of a document's log of changes |
 | `folders(user)`, `make_folder`, `delete_folder`, `move_doc(user, id, folder)` | folders and putting a document in one |
 | `put_grant`, `grants_to(user)`, `grants_of(owner, doc)`, `grant(owner, doc, with)`, `delete_grant` | documents shared with a named person |
 | `put(user, id, name, kind, bytes, if_match)` | makes (`id` is `None`) or replaces a document; checks the kind, the name, the quota and the etag |
@@ -48,6 +49,6 @@ office-cloud = { workspace = true, features = ["server"] }   # and the storage (
 | `usage(user)` | `Usage` |
 | `put_share(share)`, `share(token)`, `shares_of(user)`, `delete_share(user, token)` | the links |
 
-Two implementations: `LocalStore::new(root, quota)` / `LocalStore::from_env(root)` (a directory per person) and `WarehouseStore::from_env()` (a warehouse storage per person; `WarehouseStore::storage_of(user)` gives the storage's name). `grant_doc`, `open_granted`, `granted_meta` and `save_granted` apply the rules of sharing with a person (only a grant with edit rights may save; the save goes into the owner's copy). Three functions apply the rules of a link: `open_share(store, token)`, `share_meta(store, token)` (the same without the bytes) and `save_share(store, token, bytes, if_match)` (only a link with edit rights may save; an ended link is `NotFound`).
+Two implementations: `LocalStore::new(root, quota)` / `LocalStore::from_env(root)` (a directory per person) and `WarehouseStore::from_env()` (a warehouse storage per person; `WarehouseStore::storage_of(user)` gives the storage's name). `OpLog` numbers a document's changes (`append`, `since`, `snapshot`, `head`; one lock, the latest numbers in memory) and answers `Error::Behind { head }` to a change that began from an old number; `Since` is what a page asking for changes after some number is told. `grant_doc`, `open_granted`, `granted_meta` and `save_granted` apply the rules of sharing with a person (only a grant with edit rights may save; the save goes into the owner's copy). Three functions apply the rules of a link: `open_share(store, token)`, `share_meta(store, token)` (the same without the bytes) and `save_share(store, token, bytes, if_match)` (only a link with edit rights may save; an ended link is `NotFound`).
 
 The layouts are in [Data](../../services/lore-office/data.md); the environment in [Configuration](../../services/lore-office/configuration.md).

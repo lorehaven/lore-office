@@ -32,6 +32,18 @@ Calls act on the signed-in person's own documents. The exception is `s/{token}`,
 
 Headers of `GET /api/docs/{id}` and `GET /api/s/{token}`: `x-name` (the name, percent-encoded), `x-kind`, `x-etag`, `cache-control: no-store`; the share one adds `x-rights` (`view` or `edit`).
 
+## The log of changes
+
+For documents that are followed by cell (sheets), the stored file is the document at a **version** and the changes made after it are numbered and kept beside it. The calls exist for documents of the person (`/api/docs/{id}`), through a link (`/api/s/{token}`) and shared with a person (`/api/shared/{owner}/{id}`); the examples use the first.
+
+| Call | Does |
+|---|---|
+| `POST /api/docs/{id}/ops?base=<n>` | adds a change (a JSON body) that began from number `n`; answers `{"n": <its number>}`. `409` with `{"head": <latest>}` when `n` is not the latest; `400` when `base` is missing or the body is not JSON. Needs the right to change the document (the owner, an edit link, an edit share) |
+| `GET /api/docs/{id}/ops?after=<n>` | the changes after `n`: `{"head": h, "version": v, "ops": [{"n": 4, "op": {...}}, ...]}`. `410` with `{"head": h, "version": v}` when `n` is older than the stored file's version: fetch the file |
+| `PUT /api/docs/{id}?name=<name>&kind=<kind>&at=<n>` | saves the whole file as the document at version `n`: `409` with `{"head": h}` when changes were added since; else the changes up to `n` are dropped and the file's version is `n`. Without `at`, a document that has a log gets a new version after the latest change, so followers fetch it again |
+
+`GET /api/docs/{id}`, `GET /api/docs/{id}/meta` and their link and share counterparts also carry `x-version` (the stored file's version) and `x-head` (the latest change number). The service numbers the changes with one lock and keeps the latest numbers in memory, so it assumes one replica (see [Sync and presence](../../guides/sync-and-presence.md)).
+
 ## Folders
 
 | Call | Does |

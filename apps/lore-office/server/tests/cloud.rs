@@ -738,3 +738,208 @@ fn folders_move_documents_and_a_document_can_be_shared_with_a_named_person() {
         );
     });
 }
+
+#[quench_test::test]
+fn changes_are_numbered_by_the_service_and_folded_into_a_snapshot_by_whoever_is_up_to_date() {
+    run(async {
+        let r = rig("/lore-office", 1 << 20).await;
+        let (alice, bob) = ([("x-lore-user", "alice")], [("x-lore-user", "bob")]);
+        let text = |a: &Answer| a.text();
+        let field = |t: &str, key: &str| {
+            quench_serde::json::parse(t)
+                .unwrap()
+                .get(key)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let made = r
+            .call(
+                "PUT",
+                "/lore-office/api/docs?name=Book.xlsx&kind=sheets",
+                &alice,
+                b"v0",
+            )
+            .await;
+        let id = field(&made.text(), "id");
+        let at = |h: u64| format!("/lore-office/api/docs/{id}/ops?base={h}");
+        // The file carries the version of its log; there is no change yet.
+        let opened = r
+            .call("GET", &format!("/lore-office/api/docs/{id}"), &alice, b"")
+            .await;
+        assert_eq!(
+            (opened.header("x-version"), opened.header("x-head")),
+            (Some("0"), Some("0"))
+        );
+        // Changes are numbered in order; one that began from an old version is told the latest.
+        let first = r
+            .call("POST", &at(0), &alice, br#"{"cells":[{"r":0}]}"#)
+            .await;
+        assert_eq!((first.status, text(&first).as_str()), (200, r#"{"n":1}"#));
+        let second = r
+            .call("POST", &at(1), &alice, br#"{"cells":[{"r":1}]}"#)
+            .await;
+        assert_eq!(text(&second), r#"{"n":2}"#);
+        let late = r
+            .call("POST", &at(1), &alice, br#"{"cells":[{"r":2}]}"#)
+            .await;
+        assert_eq!((late.status, text(&late).as_str()), (409, r#"{"head":2}"#));
+        assert_eq!(
+            r.call("POST", &at(2), &alice, b"not json").await.status,
+            400
+        );
+        assert_eq!(
+            r.call(
+                "POST",
+                &format!("/lore-office/api/docs/{id}/ops"),
+                &alice,
+                b"{}"
+            )
+            .await
+            .status,
+            400,
+            "no base"
+        );
+        let since = r
+            .call(
+                "GET",
+                &format!("/lore-office/api/docs/{id}/ops?after=1"),
+                &alice,
+                b"",
+            )
+            .await;
+        assert_eq!(
+            text(&since),
+            r#"{"head":2,"version":0,"ops":[{"n":2,"op":{"cells":[{"r":1}]}}]}"#
+        );
+        // Someone with no right to the document has no log of it.
+        assert_eq!(
+            r.call(
+                "GET",
+                &format!("/lore-office/api/docs/{id}/ops?after=0"),
+                &bob,
+                b""
+            )
+            .await
+            .status,
+            404
+        );
+        // Through a link with edit rights, and through a share with a person.
+        let share = r
+            .call(
+                "POST",
+                &format!("/lore-office/api/docs/{id}/share?rights=edit"),
+                &alice,
+                b"",
+            )
+            .await;
+        let token = field(&share.text(), "token");
+        let linked = r
+            .call(
+                "POST",
+                &format!("/lore-office/api/s/{token}/ops?base=2"),
+                &[],
+                br#"{"cells":[{"r":3}]}"#,
+            )
+            .await;
+        assert_eq!(text(&linked), r#"{"n":3}"#);
+        r.call(
+            "POST",
+            &format!("/lore-office/api/docs/{id}/grant?user=bob&rights=view"),
+            &alice,
+            b"",
+        )
+        .await;
+        let view_post = r
+            .call(
+                "POST",
+                &format!("/lore-office/api/shared/alice/{id}/ops?base=3"),
+                &bob,
+                b"{}",
+            )
+            .await;
+        assert_eq!(view_post.status, 403, "a view share cannot add changes");
+        let read = r
+            .call(
+                "GET",
+                &format!("/lore-office/api/shared/alice/{id}/ops?after=2"),
+                &bob,
+                b"",
+            )
+            .await;
+        assert!(text(&read).contains(r#""n":3"#), "{}", text(&read));
+        r.call(
+            "POST",
+            &format!("/lore-office/api/docs/{id}/grant?user=bob&rights=edit"),
+            &alice,
+            b"",
+        )
+        .await;
+        let shared = r
+            .call(
+                "POST",
+                &format!("/lore-office/api/shared/alice/{id}/ops?base=3"),
+                &bob,
+                br#"{"cells":[{"r":4}]}"#,
+            )
+            .await;
+        assert_eq!(text(&shared), r#"{"n":4}"#);
+        // A snapshot at an old version is refused; at the latest it folds the changes in, and followers are told.
+        let old = r
+            .call(
+                "PUT",
+                &format!("/lore-office/api/docs/{id}?name=Book.xlsx&kind=sheets&at=3"),
+                &alice,
+                b"v3",
+            )
+            .await;
+        assert_eq!((old.status, text(&old).as_str()), (409, r#"{"head":4}"#));
+        let folded = r
+            .call(
+                "PUT",
+                &format!("/lore-office/api/docs/{id}?name=Book.xlsx&kind=sheets&at=4"),
+                &alice,
+                b"v4",
+            )
+            .await;
+        assert_eq!(
+            (folded.status, folded.header("x-version")),
+            (200, Some("4"))
+        );
+        let gone = r
+            .call(
+                "GET",
+                &format!("/lore-office/api/docs/{id}/ops?after=2"),
+                &alice,
+                b"",
+            )
+            .await;
+        assert_eq!(
+            (gone.status, text(&gone).as_str()),
+            (410, r#"{"head":4,"version":4}"#)
+        );
+        let current = r
+            .call(
+                "GET",
+                &format!("/lore-office/api/docs/{id}/ops?after=4"),
+                &alice,
+                b"",
+            )
+            .await;
+        assert_eq!(text(&current), r#"{"head":4,"version":4,"ops":[]}"#);
+        // The meta carries both numbers.
+        let meta = r
+            .call(
+                "GET",
+                &format!("/lore-office/api/docs/{id}/meta"),
+                &alice,
+                b"",
+            )
+            .await;
+        assert_eq!(
+            (meta.header("x-version"), meta.header("x-head")),
+            (Some("4"), Some("4"))
+        );
+    });
+}

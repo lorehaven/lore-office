@@ -82,6 +82,11 @@ fn failed(e: &Error) -> Response {
             StatusCode::from_u16(507).unwrap_or(StatusCode::PAYLOAD_TOO_LARGE),
             &e.to_string(),
         ),
+        Error::Behind { head } => {
+            Response::text(StatusCode::CONFLICT, format!("{{\"head\":{head}}}"))
+                .header("content-type", "application/json")
+                .header("x-head", head.to_string())
+        }
         Error::Denied => reply(StatusCode::FORBIDDEN, &e.to_string()),
         Error::Invalid(_) => reply(StatusCode::BAD_REQUEST, &e.to_string()),
         Error::Io(why) => {
@@ -117,7 +122,7 @@ fn file(meta: &office_cloud::DocMeta, bytes: Vec<u8>) -> Response {
         .header("cache-control", "no-store")
         .header(
             "access-control-expose-headers",
-            "x-name, x-kind, x-etag, x-rights, x-link",
+            "x-name, x-kind, x-etag, x-rights, x-link, x-version, x-head",
         )
 }
 
@@ -130,6 +135,8 @@ pub struct CloudApi {
     pub max_upload: usize,
     /// Where signing in starts.
     pub login: String,
+    /// The numbering of each document's changes.
+    pub log: office_cloud::OpLog,
 }
 
 impl std::fmt::Debug for CloudApi {
@@ -153,6 +160,124 @@ impl CloudApi {
         )
     }
 
+    /// Whether `user` was given the right to change `owner`'s document `id`.
+    async fn edit_grant(&self, user: &str, owner: &str, id: &str) -> Result<(), Error> {
+        let grant = self.store.grant(owner, id, user).await?;
+        if grant.rights == Rights::Edit {
+            Ok(())
+        } else {
+            Err(Error::Denied)
+        }
+    }
+
+    /// The link, when it still works and lets its holder change the document.
+    async fn edit_share(&self, token: &str) -> Result<Share, Error> {
+        let share = self.store.share(token).await?;
+        if share.expired(now()) {
+            return Err(Error::NotFound);
+        }
+        if share.rights != Rights::Edit {
+            return Err(Error::Denied);
+        }
+        Ok(share)
+    }
+
+    /// `response` with the version of the stored file and the latest change number of the document.
+    async fn stamped(&self, response: Response, owner: &str, id: &str) -> Response {
+        let version = self.store.meta(owner, id).await.map_or(0, |m| m.version);
+        let head = self
+            .log
+            .head(&*self.store, owner, id)
+            .await
+            .unwrap_or(version);
+        response
+            .header("x-version", version.to_string())
+            .header("x-head", head.to_string())
+    }
+
+    /// Save a full file over `owner`'s document `id`: as the snapshot at version `at` of its log when that is given, else whole.
+    #[allow(clippy::too_many_arguments)]
+    async fn replace(
+        &self,
+        owner: &str,
+        id: &str,
+        name_kind: Option<(String, String)>,
+        bytes: &[u8],
+        at: Option<u64>,
+        if_match: Option<&str>,
+    ) -> Response {
+        let (name, kind) = match name_kind {
+            Some(nk) => nk,
+            None => match self.store.meta(owner, id).await {
+                Ok(m) => (m.name, m.kind),
+                Err(e) => return failed(&e),
+            },
+        };
+        match self
+            .log
+            .snapshot(&*self.store, owner, id, &name, &kind, bytes, at, if_match)
+            .await
+        {
+            Ok((meta, head)) => json(&meta)
+                .header("x-version", meta.version.to_string())
+                .header("x-head", head.to_string()),
+            Err(e) => failed(&e),
+        }
+    }
+
+    /// `POST .../ops?base=n`: add a change that began from version `n` of the log.
+    async fn ops_post(&self, req: &mut Request, owner: &str, id: &str) -> Response {
+        let Some(base) = query(req, "base").and_then(|b| b.parse::<u64>().ok()) else {
+            return reply(
+                StatusCode::BAD_REQUEST,
+                "base is the version the change began from",
+            );
+        };
+        let bytes = match self.body(req).await {
+            Ok(b) => b,
+            Err(r) => return r,
+        };
+        if quench_serde::json::parse(&String::from_utf8_lossy(&bytes)).is_err() {
+            return reply(StatusCode::BAD_REQUEST, "a change is JSON");
+        }
+        match self.log.append(&*self.store, owner, id, base, &bytes).await {
+            Ok(n) => Response::text(StatusCode::OK, format!("{{\"n\":{n}}}"))
+                .header("content-type", "application/json")
+                .header("x-head", n.to_string()),
+            Err(e) => failed(&e),
+        }
+    }
+
+    /// `GET .../ops?after=n`: the changes after number `n`.
+    async fn ops_get(&self, req: &Request, owner: &str, id: &str) -> Response {
+        let after = query(req, "after")
+            .and_then(|a| a.parse::<u64>().ok())
+            .unwrap_or(0);
+        match self.log.since(&*self.store, owner, id, after).await {
+            Ok(office_cloud::Since::Ops { head, version, ops }) => {
+                let list: Vec<String> = ops
+                    .iter()
+                    .map(|(n, op)| format!("{{\"n\":{n},\"op\":{}}}", String::from_utf8_lossy(op)))
+                    .collect();
+                Response::text(
+                    StatusCode::OK,
+                    format!(
+                        "{{\"head\":{head},\"version\":{version},\"ops\":[{}]}}",
+                        list.join(",")
+                    ),
+                )
+                .header("content-type", "application/json")
+                .header("cache-control", "no-store")
+            }
+            Ok(office_cloud::Since::Gone { head, version }) => Response::text(
+                StatusCode::GONE,
+                format!("{{\"head\":{head},\"version\":{version}}}"),
+            )
+            .header("content-type", "application/json"),
+            Err(e) => failed(&e),
+        }
+    }
+
     async fn body(&self, req: &mut Request) -> Result<Vec<u8>, Response> {
         req.take_body()
             .collect_limited(self.max_upload)
@@ -165,22 +290,31 @@ impl CloudApi {
         match req.method().as_str() {
             "GET" => match office_cloud::open_share(&*self.store, token).await {
                 Ok((share, meta, bytes)) => {
-                    file(&meta, bytes).header("x-rights", share.rights.word())
+                    let response = file(&meta, bytes).header("x-rights", share.rights.word());
+                    self.stamped(response, &share.owner, &share.doc).await
                 }
                 Err(e) => failed(&e),
             },
             "PUT" => {
                 let if_match = req.header("if-match").map(str::to_string);
+                let at = query(req, "at").and_then(|a| a.parse::<u64>().ok());
+                let share = match self.edit_share(token).await {
+                    Ok(s) => s,
+                    Err(e) => return failed(&e),
+                };
                 let bytes = match self.body(req).await {
                     Ok(b) => b,
                     Err(r) => return r,
                 };
-                match office_cloud::save_share(&*self.store, token, &bytes, if_match.as_deref())
-                    .await
-                {
-                    Ok(meta) => json(&meta),
-                    Err(e) => failed(&e),
-                }
+                self.replace(
+                    &share.owner,
+                    &share.doc,
+                    None,
+                    &bytes,
+                    at,
+                    if_match.as_deref(),
+                )
+                .await
             }
             _ => reply(StatusCode::METHOD_NOT_ALLOWED, "GET or PUT"),
         }
@@ -197,9 +331,25 @@ impl CloudApi {
         if let ["s", token] = parts.as_slice() {
             return self.shared(&mut req, token).await;
         }
+        if let ["s", token, "ops"] = parts.as_slice() {
+            return match method.as_str() {
+                "GET" => match office_cloud::share_meta(&*self.store, token).await {
+                    Ok((share, _)) => self.ops_get(&req, &share.owner, &share.doc).await,
+                    Err(e) => failed(&e),
+                },
+                "POST" => match self.edit_share(token).await {
+                    Ok(share) => self.ops_post(&mut req, &share.owner, &share.doc).await,
+                    Err(e) => failed(&e),
+                },
+                _ => reply(StatusCode::METHOD_NOT_ALLOWED, "GET or POST"),
+            };
+        }
         if let ["s", token, "meta"] = parts.as_slice() {
             return match office_cloud::share_meta(&*self.store, token).await {
-                Ok((share, meta)) => json(&meta).header("x-rights", share.rights.word()),
+                Ok((share, meta)) => {
+                    let response = json(&meta).header("x-rights", share.rights.word());
+                    self.stamped(response, &share.owner, &share.doc).await
+                }
                 Err(e) => failed(&e),
             };
         }
@@ -312,53 +462,81 @@ impl CloudApi {
             ("GET", ["shared", owner, id]) => {
                 match office_cloud::open_granted(store, &user, owner, id).await {
                     Ok((grant, meta, bytes)) => {
-                        file(&meta, bytes).header("x-rights", grant.rights.word())
+                        let response = file(&meta, bytes).header("x-rights", grant.rights.word());
+                        self.stamped(response, owner, id).await
                     }
                     Err(e) => failed(&e),
                 }
             }
             ("GET", ["shared", owner, id, "meta"]) => {
                 match office_cloud::granted_meta(store, &user, owner, id).await {
-                    Ok((grant, meta)) => json(&meta).header("x-rights", grant.rights.word()),
+                    Ok((grant, meta)) => {
+                        let response = json(&meta).header("x-rights", grant.rights.word());
+                        self.stamped(response, owner, id).await
+                    }
+                    Err(e) => failed(&e),
+                }
+            }
+            ("GET", ["shared", owner, id, "ops"]) => {
+                match office_cloud::granted_meta(store, &user, owner, id).await {
+                    Ok(_) => self.ops_get(&req, owner, id).await,
+                    Err(e) => failed(&e),
+                }
+            }
+            ("POST", ["shared", owner, id, "ops"]) => {
+                match self.edit_grant(&user, owner, id).await {
+                    Ok(()) => self.ops_post(&mut req, owner, id).await,
                     Err(e) => failed(&e),
                 }
             }
             ("PUT", ["shared", owner, id]) => {
                 let if_match = req.header("if-match").map(str::to_string);
+                let at = query(&req, "at").and_then(|a| a.parse::<u64>().ok());
+                if let Err(e) = self.edit_grant(&user, owner, id).await {
+                    return failed(&e);
+                }
                 let bytes = match self.body(&mut req).await {
                     Ok(b) => b,
                     Err(r) => return r,
                 };
-                office_cloud::save_granted(store, &user, owner, id, &bytes, if_match.as_deref())
+                self.replace(owner, id, None, &bytes, at, if_match.as_deref())
                     .await
-                    .map_or_else(|e| failed(&e), |m| json(&m))
             }
-            ("GET", ["docs", id, "meta"]) => store
-                .meta(&user, id)
-                .await
-                .map_or_else(|e| failed(&e), |m| json(&m)),
-            ("GET", ["docs", id]) => store
-                .get(&user, id)
-                .await
-                .map_or_else(|e| failed(&e), |(m, b)| file(&m, b)),
+            ("GET", ["docs", id, "meta"]) => match store.meta(&user, id).await {
+                Ok(m) => self.stamped(json(&m), &user, id).await,
+                Err(e) => failed(&e),
+            },
+            ("GET", ["docs", id, "ops"]) => self.ops_get(&req, &user, id).await,
+            ("POST", ["docs", id, "ops"]) => self.ops_post(&mut req, &user, id).await,
+            ("GET", ["docs", id]) => match store.get(&user, id).await {
+                Ok((m, b)) => self.stamped(file(&m, b), &user, id).await,
+                Err(e) => failed(&e),
+            },
             ("PUT", ["docs", id]) => {
                 let (Some(name), Some(kind)) = (query(&req, "name"), query(&req, "kind")) else {
                     return reply(StatusCode::BAD_REQUEST, "name and kind are needed");
                 };
                 let if_match = req.header("if-match").map(str::to_string);
+                let at = query(&req, "at").and_then(|a| a.parse::<u64>().ok());
                 let bytes = match self.body(&mut req).await {
                     Ok(b) => b,
                     Err(r) => return r,
                 };
-                store
-                    .put(&user, Some(id), &name, &kind, &bytes, if_match.as_deref())
-                    .await
-                    .map_or_else(|e| failed(&e), |m| json(&m))
-            }
-            ("DELETE", ["docs", id]) => store
-                .delete(&user, id)
+                self.replace(
+                    &user,
+                    id,
+                    Some((name, kind)),
+                    &bytes,
+                    at,
+                    if_match.as_deref(),
+                )
                 .await
-                .map_or_else(|e| failed(&e), |()| Response::new(StatusCode::NO_CONTENT)),
+            }
+            ("DELETE", ["docs", id]) => {
+                let done = store.delete(&user, id).await;
+                self.log.forget(&user, id).await;
+                done.map_or_else(|e| failed(&e), |()| Response::new(StatusCode::NO_CONTENT))
+            }
             ("POST", ["docs", id, "share"]) => {
                 let Some(rights) =
                     Rights::parse(&query(&req, "rights").unwrap_or_else(|| "view".into()))

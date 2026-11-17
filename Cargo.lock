@@ -887,6 +887,7 @@ dependencies = [
  "office-ui",
  "quench-pdf",
  "quench-regex",
+ "quench-serde",
  "quench-test",
  "quench-ui",
  "sheets-calc",

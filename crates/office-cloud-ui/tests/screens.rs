@@ -129,6 +129,7 @@ fn setup(
             }),
             revision: Rc::new(|| 0),
             autosave: false,
+            delta: None,
         });
         c.install();
         cloud = Some(c);
@@ -257,6 +258,7 @@ fn a_new_document_is_saved_as_new_and_links_are_made_and_withdrawn() {
         import: Rc::new(|_, _| Ok(())),
         revision: Rc::new(|| 0),
         autosave: false,
+        delta: None,
     });
     cloud.opened.set(None);
     cloud.save();
@@ -304,6 +306,7 @@ fn a_page_opened_from_a_link_loads_it_and_saves_through_it_and_failures_are_said
         import: Rc::new(|_, _| Ok(())),
         revision: Rc::new(|| 0),
         autosave: false,
+        delta: None,
     });
     down.save();
     assert!(down.status.get_untracked().contains("Someone else changed"));
@@ -415,6 +418,7 @@ fn sync(autosave: bool) -> Sync {
             }),
             revision: Rc::new(move || read.get()),
             autosave,
+            delta: None,
         });
         c.install();
         made = Some(c);
@@ -527,9 +531,9 @@ fn a_document_in_the_cloud_is_saved_by_itself_a_moment_after_the_last_change() {
     let s = sync(true);
     s.cloud.open_doc("ab12");
     s.revision.set(1);
-    s.clock.advance(1000.0);
+    s.clock.advance(600.0);
     s.revision.set(2);
-    s.clock.advance(1500.0);
+    s.clock.advance(900.0);
     assert!(
         puts(&s).is_empty(),
         "the quiet moment starts again with each change"
@@ -672,5 +676,358 @@ fn what_others_shared_is_opened_from_their_cloud_and_saved_back_there() {
         seen.borrow()
             .iter()
             .any(|s| s.0 == "POST" && s.1 == "/api/docs/ab12/grant?user=dave&rights=edit")
+    );
+}
+
+#[quench_test::test]
+fn someone_who_types_without_a_pause_is_still_saved_after_the_longest_wait() {
+    let s = sync(true);
+    s.cloud.open_doc("ab12");
+    // A change every 300 ms: never quiet for the second the save waits for.
+    for n in 1..=23_u64 {
+        s.revision.set(n);
+        s.clock.advance(300.0);
+    }
+    assert!(puts(&s).is_empty(), "not yet: about 7 s of typing");
+    for n in 24..=31_u64 {
+        s.revision.set(n);
+        s.clock.advance(300.0);
+    }
+    assert!(
+        !puts(&s).is_empty(),
+        "after 8 s it was sent although the typing went on"
+    );
+}
+
+/// A document's log as the service keeps it, and the pages' side of it: what the app has to send, and what it was told to apply.
+#[derive(Default)]
+struct LogState {
+    head: u64,
+    version: u64,
+    ops: Vec<(u64, String)>,
+}
+
+struct LogServer {
+    state: Rc<RefCell<LogState>>,
+    seen: Seen,
+}
+
+impl Transport for LogServer {
+    fn send(
+        &self,
+        method: &str,
+        url: &str,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+        done: Box<dyn FnOnce(Reply)>,
+    ) {
+        self.seen
+            .borrow_mut()
+            .push((method.into(), url.into(), headers, body.clone()));
+        let path = url.strip_prefix("/api").unwrap_or(url);
+        let (route, query) = path.split_once('?').unwrap_or((path, ""));
+        let param = |k: &str| {
+            query
+                .split('&')
+                .find_map(|p| p.strip_prefix(&format!("{k}=")))
+                .and_then(|v| v.parse::<u64>().ok())
+        };
+        let mut st = self.state.borrow_mut();
+        let numbers = (st.version.to_string(), st.head.to_string());
+        let answer = match (method, route) {
+            ("GET", "/docs/ab12") => reply(
+                200,
+                &[
+                    ("x-name", "Book.xlsx"),
+                    ("x-etag", "e1"),
+                    ("x-version", &numbers.0),
+                    ("x-head", &numbers.1),
+                ],
+                "FILE",
+            ),
+            ("GET", "/docs/ab12/ops") => {
+                let after = param("after").unwrap_or(0);
+                if after < st.version {
+                    reply(
+                        410,
+                        &[],
+                        &format!(r#"{{"head":{},"version":{}}}"#, st.head, st.version),
+                    )
+                } else {
+                    let list: Vec<String> = st
+                        .ops
+                        .iter()
+                        .filter(|(n, _)| *n > after)
+                        .map(|(n, op)| format!(r#"{{"n":{n},"op":{op}}}"#))
+                        .collect();
+                    reply(
+                        200,
+                        &[],
+                        &format!(
+                            r#"{{"head":{},"version":{},"ops":[{}]}}"#,
+                            st.head,
+                            st.version,
+                            list.join(",")
+                        ),
+                    )
+                }
+            }
+            ("POST", "/docs/ab12/ops") => {
+                if param("base") == Some(st.head) {
+                    st.head += 1;
+                    let n = st.head;
+                    st.ops.push((n, String::from_utf8_lossy(&body).to_string()));
+                    reply(200, &[], &format!(r#"{{"n":{n}}}"#))
+                } else {
+                    reply(409, &[], &format!(r#"{{"head":{}}}"#, st.head))
+                }
+            }
+            ("PUT", "/docs/ab12") => match param("at") {
+                Some(at) if at == st.head => {
+                    st.version = at;
+                    st.ops.clear();
+                    reply(200, &[], META)
+                }
+                Some(_) => reply(409, &[], &format!(r#"{{"head":{}}}"#, st.head)),
+                None => reply(200, &[], META),
+            },
+            _ => reply(404, &[], ""),
+        };
+        drop(st);
+        done(answer);
+    }
+}
+
+struct Following {
+    cloud: Cloud,
+    seen: Seen,
+    server: Rc<RefCell<LogState>>,
+    /// What the app has to send, oldest first.
+    to_send: Rc<RefCell<std::collections::VecDeque<office_cloud_ui::Change>>>,
+    /// What the app was told to apply.
+    applied: Rc<RefCell<Vec<String>>>,
+    imported: Rc<RefCell<usize>>,
+    clock: Rc<quench_ui::platform::ManualPlatform>,
+    _scope: Scope,
+}
+
+fn following() -> Following {
+    let clock = Rc::new(quench_ui::platform::ManualPlatform::new());
+    quench_ui::platform::install(clock.clone());
+    let seen: Seen = Rc::default();
+    let server: Rc<RefCell<LogState>> = Rc::default();
+    let to_send: Rc<RefCell<std::collections::VecDeque<office_cloud_ui::Change>>> = Rc::default();
+    let applied: Rc<RefCell<Vec<String>>> = Rc::default();
+    let imported: Rc<RefCell<usize>> = Rc::default();
+    let context = Context {
+        api: "/api".into(),
+        user: Some("alice".into()),
+        denied: None,
+        login: "/ui/login".into(),
+        share: None,
+    };
+    let (mut made, (take, apply, got)) =
+        (None, (to_send.clone(), applied.clone(), imported.clone()));
+    let transport = LogServer {
+        state: server.clone(),
+        seen: seen.clone(),
+    };
+    let (_, scope) = create_root(|| {
+        let c = Cloud::new(context, Rc::new(transport));
+        let (queue, log) = (take, apply);
+        c.bind(Binding {
+            kind: "sheets",
+            export: Rc::new(|| Some(("Book.xlsx".to_string(), b"WHOLE".to_vec()))),
+            import: Rc::new(move |_, _| {
+                *got.borrow_mut() += 1;
+                Ok(())
+            }),
+            revision: Rc::new(|| 0),
+            autosave: true,
+            delta: Some(office_cloud_ui::DeltaHooks {
+                take: Rc::new(move || queue.borrow_mut().pop_front()),
+                apply: Rc::new(move |op| {
+                    log.borrow_mut()
+                        .push(String::from_utf8_lossy(op).to_string());
+                    Ok(())
+                }),
+            }),
+        });
+        c.install();
+        made = Some(c);
+    });
+    Following {
+        cloud: made.unwrap(),
+        seen,
+        server,
+        to_send,
+        applied,
+        imported,
+        clock,
+        _scope: scope,
+    }
+}
+
+fn requests(f: &Following, method: &str) -> Vec<(String, String)> {
+    f.seen
+        .borrow()
+        .iter()
+        .filter(|s| s.0 == method)
+        .map(|s| (s.1.clone(), String::from_utf8_lossy(&s.3).to_string()))
+        .collect()
+}
+
+fn op(text: &str) -> office_cloud_ui::Change {
+    office_cloud_ui::Change::Ops(text.as_bytes().to_vec())
+}
+
+#[quench_test::test]
+fn a_change_is_sent_as_one_numbered_change_after_a_short_quiet_and_the_whole_file_is_not() {
+    let f = following();
+    f.cloud.open_doc("ab12");
+    f.to_send.borrow_mut().push_back(op(r#"{"cells":[1]}"#));
+    f.clock.advance(400.0);
+    assert!(f.cloud.dirty.get_untracked(), "taken, not yet sent");
+    f.clock.advance(800.0);
+    assert_eq!(
+        requests(&f, "POST"),
+        [(
+            "/api/docs/ab12/ops?base=0".to_string(),
+            r#"{"cells":[1]}"#.to_string()
+        )]
+    );
+    assert!(requests(&f, "PUT").is_empty(), "no whole file");
+    assert!(!f.cloud.dirty.get_untracked());
+    // The next change begins from the number the service gave.
+    f.to_send.borrow_mut().push_back(op(r#"{"cells":[2]}"#));
+    f.clock.advance(1200.0);
+    assert_eq!(requests(&f, "POST")[1].0, "/api/docs/ab12/ops?base=1");
+}
+
+#[quench_test::test]
+fn a_change_that_began_behind_catches_up_applies_their_changes_first_then_its_own_and_is_sent_again()
+ {
+    let f = following();
+    f.cloud.open_doc("ab12");
+    // Two changes made by others that this page has not seen.
+    {
+        let mut st = f.server.borrow_mut();
+        st.head = 2;
+        st.ops = vec![(1, r#"{"theirs":1}"#.into()), (2, r#"{"theirs":2}"#.into())];
+    }
+    f.to_send.borrow_mut().push_back(op(r#"{"mine":1}"#));
+    f.clock.advance(1200.0);
+    // Refused (behind), then caught up, then sent from the new number.
+    assert_eq!(
+        f.applied.borrow().as_slice(),
+        [r#"{"theirs":1}"#, r#"{"theirs":2}"#, r#"{"mine":1}"#],
+        "theirs, then this page's own again"
+    );
+    f.clock.advance(1200.0);
+    let posts = requests(&f, "POST");
+    assert_eq!(posts.last().unwrap().0, "/api/docs/ab12/ops?base=2");
+    assert_eq!(f.server.borrow().head, 3);
+}
+
+#[quench_test::test]
+fn other_pages_changes_arrive_by_looking_every_couple_of_seconds_without_a_reload() {
+    let f = following();
+    f.cloud.open_doc("ab12");
+    f.clock.advance(2000.0);
+    assert!(f.applied.borrow().is_empty());
+    {
+        let mut st = f.server.borrow_mut();
+        st.head = 1;
+        st.ops = vec![(1, r#"{"theirs":1}"#.into())];
+    }
+    f.clock.advance(2000.0);
+    assert_eq!(f.applied.borrow().as_slice(), [r#"{"theirs":1}"#]);
+    assert_eq!(
+        *f.imported.borrow(),
+        1,
+        "the file was fetched once, at the start"
+    );
+}
+
+#[quench_test::test]
+fn changes_folded_into_a_new_snapshot_send_the_page_back_to_the_stored_file() {
+    let f = following();
+    f.cloud.open_doc("ab12");
+    {
+        let mut st = f.server.borrow_mut();
+        st.head = 5;
+        st.version = 5;
+    }
+    f.clock.advance(2000.0);
+    assert_eq!(*f.imported.borrow(), 2, "the stored file was fetched again");
+    assert!(f.cloud.status.get_untracked().contains("Updated"));
+}
+
+#[quench_test::test]
+fn a_change_nothing_describes_sends_the_whole_file_at_the_latest_number() {
+    let f = following();
+    f.cloud.open_doc("ab12");
+    f.server.borrow_mut().head = 0;
+    f.to_send
+        .borrow_mut()
+        .push_back(office_cloud_ui::Change::Whole);
+    f.clock.advance(1200.0);
+    let puts = requests(&f, "PUT");
+    assert_eq!(puts.len(), 1, "{puts:?}");
+    assert_eq!(puts[0].0, "/api/docs/ab12?name=Book.xlsx&kind=sheets&at=0");
+    assert_eq!(puts[0].1, "WHOLE");
+    assert!(!f.cloud.dirty.get_untracked());
+}
+
+#[quench_test::test]
+fn saving_by_hand_sends_the_whole_file_and_says_so() {
+    let f = following();
+    f.cloud.open_doc("ab12");
+    f.cloud.save();
+    f.clock.advance(800.0);
+    assert_eq!(requests(&f, "PUT").len(), 1);
+    assert!(
+        f.cloud
+            .status
+            .get_untracked()
+            .contains("Saved to the cloud")
+    );
+}
+
+#[quench_test::test]
+fn after_fifty_changes_an_idle_page_that_is_up_to_date_folds_them_into_the_stored_file() {
+    let f = following();
+    {
+        let mut st = f.server.borrow_mut();
+        st.head = 60;
+        st.ops = (1..=60).map(|n| (n, format!(r#"{{"n":{n}}}"#))).collect();
+    }
+    f.cloud.open_doc("ab12");
+    assert_eq!(
+        f.applied.borrow().len(),
+        60,
+        "the file is at version 0 and the changes after it were applied"
+    );
+    f.clock.advance(1200.0);
+    assert!(requests(&f, "PUT").is_empty(), "not while it was busy");
+    f.clock.advance(5000.0);
+    let puts = requests(&f, "PUT");
+    assert_eq!(puts.len(), 1, "{puts:?}");
+    assert!(puts[0].0.ends_with("&at=60"), "{}", puts[0].0);
+    assert_eq!(f.server.borrow().version, 60);
+}
+
+#[quench_test::test]
+fn making_the_document_in_the_cloud_sends_the_file_whole_and_what_was_waiting_is_not_sent_again() {
+    let f = following();
+    f.to_send
+        .borrow_mut()
+        .push_back(op(r#"{"cells":["typed before the first save"]}"#));
+    f.cloud.save();
+    assert_eq!(requests(&f, "PUT").len(), 1, "the file");
+    f.clock.advance(1600.0);
+    assert!(
+        requests(&f, "POST").is_empty(),
+        "no change that is already in the file"
     );
 }

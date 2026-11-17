@@ -19,6 +19,7 @@ office-i18n = { workspace = true }
 office-theme = { workspace = true }
 office-ui = { workspace = true }
 quench-regex = { workspace = true }
+quench-serde = { workspace = true }
 quench-ui = { workspace = true }
 sheets-calc = { workspace = true }
 sheets-chart = { workspace = true }

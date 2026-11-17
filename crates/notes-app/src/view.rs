@@ -51,6 +51,18 @@ fn screen(state: &NotesState) -> View {
                     prevent_default();
                     keys.present(0);
                 }
+                "+" | "=" if command => {
+                    prevent_default();
+                    keys.zoom_by(1);
+                }
+                "-" if command => {
+                    prevent_default();
+                    keys.zoom_by(-1);
+                }
+                "0" if command => {
+                    prevent_default();
+                    keys.zoom_by(0);
+                }
                 "Escape" if keys.prompt.get_untracked().is_some() => keys.cancel_prompt(),
                 _ => {}
             }
@@ -198,6 +210,29 @@ fn home_groups(state: &NotesState) -> Vec<Element> {
             mode_button("Preview", "Only the preview", Mode::Preview),
         ],
     );
+    let (zoom_out, zoom_in, zoom_now, zoom_shown) = (
+        state.clone(),
+        state.clone(),
+        state.clone(),
+        state.zoom.clone(),
+    );
+    let zoom = office_ui::group(
+        "Zoom",
+        vec![
+            office_ui::tool("\u{2212}", "Zoom out (Ctrl+-)", move || {
+                zoom_out.zoom_by(-1)
+            })
+            .into_view(),
+            button()
+                .attr("type", "button")
+                .class("tool")
+                .attr("title", crate::i18n::tr("Back to 100%"))
+                .text_fn(move || format!("{}%", zoom_shown.get()))
+                .on_click(move || zoom_now.zoom_by(0))
+                .into_view(),
+            office_ui::tool("+", "Zoom in (Ctrl++)", move || zoom_in.zoom_by(1)).into_view(),
+        ],
+    );
     let present = state.clone();
     let show = office_ui::group(
         "Present",
@@ -243,7 +278,7 @@ fn home_groups(state: &NotesState) -> Vec<Element> {
             }),
         ],
     );
-    vec![note, view, format, show]
+    vec![note, view, zoom, format, show]
 }
 
 fn insert_groups(state: &NotesState) -> Vec<Element> {
@@ -503,9 +538,19 @@ fn work(state: &NotesState) -> Element {
         })
     };
     let (m1, m2) = (state.mode.clone(), state.mode.clone());
+    let (z, wheel) = (state.zoom.clone(), state.clone());
     div()
         .class("work")
         .attr("role", "main")
+        .css("zoom", move || format!("{}%", z.get()))
+        .on(EventKind::Wheel, move |e| {
+            if let Event::Wheel(w) = e
+                && (w.ctrl || w.meta)
+            {
+                prevent_default();
+                wheel.zoom_by(if w.dy > 0.0 { -1 } else { 1 });
+            }
+        })
         .attr_fn("data-mode", move || {
             match mode.get() {
                 Mode::Edit => "edit",

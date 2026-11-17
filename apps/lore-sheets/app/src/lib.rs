@@ -19,6 +19,7 @@ pub fn app() -> View {
     let cloud = office_cloud_ui::setup();
     {
         let (out, back, rev) = (state.clone(), state.clone(), state.clone());
+        let (taker, applier) = (state.clone(), state.clone());
         cloud.bind(office_cloud_ui::Binding {
             kind: "sheets",
             export: std::rc::Rc::new(move || {
@@ -28,6 +29,11 @@ pub fn app() -> View {
             import: std::rc::Rc::new(move |name, bytes| back.load_bytes(name, bytes)),
             revision: std::rc::Rc::new(move || rev.rev.get()),
             autosave: true,
+            // Cell by cell: what is typed is sent as the cells it wrote, and others' cells come in the same way.
+            delta: Some(office_cloud_ui::DeltaHooks {
+                take: std::rc::Rc::new(move || taker.take_changes()),
+                apply: std::rc::Rc::new(move |op| applier.apply_remote(op)),
+            }),
         });
     }
     #[cfg(target_arch = "wasm32")]

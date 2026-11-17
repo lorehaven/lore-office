@@ -1,7 +1,7 @@
 ---
 title: Deployment
 parent: Guides
-nav_order: 6
+nav_order: 7
 ---
 
 The service is one image, released by the pipeline and run by the `lore-office` overlay of `homecloud` behind the estate's ingress.

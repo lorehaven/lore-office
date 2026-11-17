@@ -187,6 +187,7 @@ impl Site {
             apps.push((name, app));
         }
         let cloud = CloudApi {
+            log: office_cloud::OpLog::new(),
             store: config.store,
             jwt: config.jwt,
             base: base.clone(),

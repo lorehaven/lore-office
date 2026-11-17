@@ -414,17 +414,18 @@ impl Storage for WarehouseStore {
         }
         let storage = Self::storage_of(user);
         self.ensure(&storage, user).await?;
-        let (id, folder) = match id {
+        let (id, folder, version) = match id {
             Some(id) => {
-                let (old, _) = self.get(user, id).await?;
+                // The description is enough to see whether the version is the one the save began from.
+                let old = self.meta(user, id).await?;
                 if let Some(want) = if_match
                     && want != old.etag
                 {
                     return Err(Error::Conflict { etag: old.etag });
                 }
-                (id.to_string(), old.folder)
+                (id.to_string(), old.folder, old.version)
             }
-            None => (new_id(8), String::new()),
+            None => (new_id(8), String::new(), 0),
         };
         let meta = DocMeta {
             id: id.clone(),
@@ -434,6 +435,7 @@ impl Storage for WarehouseStore {
             modified: now(),
             etag: etag_of(bytes),
             folder,
+            version,
         };
         self.write(&storage, &format!("docs/{id}.bin"), bytes.to_vec())
             .await?;
@@ -465,6 +467,7 @@ impl Storage for WarehouseStore {
         for grant in self.grants_of(user, id).await? {
             let _ = self.delete_grant(user, id, &grant.with).await;
         }
+        let _ = self.drop_ops(user, id, u64::MAX).await;
         Ok(())
     }
 
@@ -540,6 +543,86 @@ impl Storage for WarehouseStore {
         } else {
             Err(Error::Io(format!("warehouse answered {status}")))
         }
+    }
+
+    async fn put_op(&self, owner: &str, id: &str, n: u64, bytes: &[u8]) -> Result<()> {
+        self.meta(owner, id).await?;
+        self.write(
+            &Self::storage_of(owner),
+            &format!("ops/{id}/{n:010}.json"),
+            bytes.to_vec(),
+        )
+        .await
+    }
+
+    async fn ops_after(&self, owner: &str, id: &str, after: u64) -> Result<Vec<(u64, Vec<u8>)>> {
+        let storage = Self::storage_of(owner);
+        let mut out = Vec::new();
+        for path in self.names(&storage, &format!("ops/{id}/")).await? {
+            let Some(n) = path
+                .rsplit('/')
+                .next()
+                .and_then(|f| f.strip_suffix(".json"))
+                .and_then(|f| f.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            if n > after {
+                out.push((n, self.read(&storage, &path).await?));
+            }
+        }
+        out.sort_by_key(|(n, _)| *n);
+        Ok(out)
+    }
+
+    async fn ops_head(&self, owner: &str, id: &str) -> Result<u64> {
+        let storage = Self::storage_of(owner);
+        Ok(self
+            .names(&storage, &format!("ops/{id}/"))
+            .await?
+            .iter()
+            .filter_map(|p| {
+                p.rsplit('/')
+                    .next()?
+                    .strip_suffix(".json")?
+                    .parse::<u64>()
+                    .ok()
+            })
+            .max()
+            .unwrap_or(0))
+    }
+
+    async fn drop_ops(&self, owner: &str, id: &str, upto: u64) -> Result<()> {
+        let storage = Self::storage_of(owner);
+        for path in self.names(&storage, &format!("ops/{id}/")).await? {
+            let old = path
+                .rsplit('/')
+                .next()
+                .and_then(|f| f.strip_suffix(".json"))
+                .and_then(|f| f.parse::<u64>().ok())
+                .is_some_and(|n| n <= upto);
+            if old {
+                let (status, _) = self
+                    .call("DELETE", &Self::file_path(&storage, &path), None, "")
+                    .await?;
+                if !(200..300).contains(&status) && status != 404 {
+                    return Err(Error::Io(format!("warehouse answered {status}")));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn set_version(&self, owner: &str, id: &str, version: u64) -> Result<DocMeta> {
+        let mut meta = self.meta(owner, id).await?;
+        meta.version = version;
+        self.write(
+            &Self::storage_of(owner),
+            &format!("docs/{id}.json"),
+            json::to_string(&meta).into_bytes(),
+        )
+        .await?;
+        Ok(meta)
     }
 
     async fn folders(&self, user: &str) -> Result<Vec<String>> {

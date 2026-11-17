@@ -87,6 +87,8 @@ pub struct NotesState {
     /// The text in the editor (the open note's).
     pub buffer: Signal<String>,
     pub mode: Signal<Mode>,
+    /// The zoom of the editor and the preview, in percent.
+    pub zoom: Signal<u32>,
     pub status: Signal<String>,
     /// What the search box holds.
     pub query: Signal<String>,
@@ -136,6 +138,7 @@ impl NotesState {
             active: create_signal(first),
             buffer: create_signal(text),
             mode: create_signal(Mode::Split),
+            zoom: create_signal(100),
             status: create_signal(String::new()),
             query: create_signal(String::new()),
             prompt: create_signal(None),
@@ -399,6 +402,19 @@ impl NotesState {
         if let Some(h) = heading {
             self.status.set(h.to_string());
         }
+    }
+
+    /// Zoom in (`1`) or out (`-1`) one step; `0` goes back to 100 percent.
+    pub fn zoom_by(&self, step: i32) {
+        const STEPS: [u32; 9] = [50, 67, 80, 90, 100, 110, 125, 150, 200];
+        let now = self.zoom.get_untracked();
+        let at = STEPS.iter().position(|z| *z >= now).unwrap_or(4);
+        let to = if step == 0 {
+            4
+        } else {
+            usize::try_from((i32::try_from(at).unwrap_or(4) + step).clamp(0, 8)).unwrap_or(4)
+        };
+        self.zoom.set(STEPS[to]);
     }
 
     /// A new note, named from `name` (made unique), opened.

@@ -38,6 +38,7 @@ pub fn app() -> View {
             revision: std::rc::Rc::new(move || u64::from(rev.rev.get())),
             // The cloud copy is the note that was open when it was saved; which note is open changes, so a save is the person's.
             autosave: false,
+            delta: None,
         });
     }
     #[cfg(target_arch = "wasm32")]

@@ -567,12 +567,24 @@ fn reader(state: &PdfState) -> Element {
             out.into_view()
         })
     };
-    div().class("reader").attr("role", "main").child(
-        div()
-            .class("paper")
-            .attr_fn("data-zoom", move || ZOOMS[zoom.get()].to_string())
-            .child(text),
-    )
+    let wheel = state.clone();
+    div()
+        .class("reader")
+        .attr("role", "main")
+        .on(EventKind::Wheel, move |e| {
+            if let Event::Wheel(w) = e
+                && (w.ctrl || w.meta)
+            {
+                prevent_default();
+                wheel.zoom_by(if w.dy > 0.0 { -1 } else { 1 });
+            }
+        })
+        .child(
+            div()
+                .class("paper")
+                .attr_fn("data-zoom", move || ZOOMS[zoom.get()].to_string())
+                .child(text),
+        )
 }
 
 /// The language picker and the theme menu, at the end of the top line.

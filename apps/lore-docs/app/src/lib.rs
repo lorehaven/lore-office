@@ -24,6 +24,7 @@ pub fn app() -> View {
             import: std::rc::Rc::new(move |name, bytes| back.load_bytes(name, bytes)),
             revision: std::rc::Rc::new(move || u64::from(rev.rev.get())),
             autosave: true,
+            delta: None,
         });
     }
     #[cfg(target_arch = "wasm32")]

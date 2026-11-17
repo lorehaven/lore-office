@@ -3,6 +3,7 @@
 use crate::state::{DocState, Range};
 use docs_text::{Align, Family, Kind, Mark, Para};
 use office_ui::MenuItem;
+use quench_ui::event::prevent_default;
 use quench_ui::prelude::*;
 use quench_ui::{BlockPoint, EditSelectionEvent};
 use std::collections::hash_map::DefaultHasher;
@@ -20,8 +21,36 @@ pub fn docs_view(state: &DocState) -> View {
 }
 
 fn screen(state: &DocState) -> View {
+    let (keys, wheel) = (state.clone(), state.clone());
     div()
         .class("docs")
+        .on_keydown(move |k| {
+            if k.ctrl || k.meta {
+                match k.key.as_str() {
+                    "+" | "=" => {
+                        prevent_default();
+                        keys.zoom_by(1);
+                    }
+                    "-" => {
+                        prevent_default();
+                        keys.zoom_by(-1);
+                    }
+                    "0" => {
+                        prevent_default();
+                        keys.zoom_by(0);
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .on(EventKind::Wheel, move |e| {
+            if let Event::Wheel(w) = e
+                && (w.ctrl || w.meta)
+            {
+                prevent_default();
+                wheel.zoom_by(if w.dy > 0.0 { -1 } else { 1 });
+            }
+        })
         .child(office_cloud_ui::overlay())
         .child(ribbon(state))
         .child(find_bar(state))

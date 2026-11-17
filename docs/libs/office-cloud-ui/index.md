@@ -28,7 +28,8 @@ cloud.bind(office_cloud_ui::Binding {
 | `Context` | what the server told the page: `api` (empty: no cloud), `user`, `denied` (signed in but without access), `login`, `share` (`SharedWith { token, edit }`); `Context::from_json`, `to_json` |
 | `Transport` | how a request reaches the server: `send(method, url, headers, body, done)` |
 | `Reply` | `status`, `headers`, `body`; `Reply::header(name)` |
-| `Binding` | what an app gives the cloud: its `kind`, `export`, `import`, a `revision` (a number that changes whenever the document does) and whether `autosave` is on |
+| `Binding` | what an app gives the cloud: its `kind`, `export`, `import`, a `revision` (a number that changes whenever the document does), whether `autosave` is on, and optionally `delta` hooks |
+| `DeltaHooks`, `Change` | for an app whose changes can be sent one by one: `take` (what changed since last asked: `Change::Ops` with a change the app reads back, or `Change::Whole`) and `apply` (make a change someone else made). The document is then followed through its log instead of by whole saves |
 | `Cloud` | the state and actions: `enabled`, `open_panel`, `save`, `save_copy`, `open_doc`, `open_share`, `delete_doc`, `share`, `list_shares`, `withdraw`, `refresh`, `close`, and the signals the panels read |
 | `Panel` | `Closed`, `Documents`, `Sharing(id)` |
 | `Section` | `Mine` (the person's folders) or `Shared` (what others shared with them) |

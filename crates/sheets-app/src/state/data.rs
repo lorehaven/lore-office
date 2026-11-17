@@ -785,7 +785,7 @@ impl SheetState {
         if self.engine().workbook().sheets[sheet].get(at).is_none() {
             return;
         }
-        let mut doc = self.doc.borrow_mut();
+        let mut doc = self.doc_mut();
         let _ = doc.engine.update_sheet(sheet, |s| {
             let mut tables = s.tables().to_vec();
             let r = tables[i].filter.range;
@@ -1517,7 +1517,7 @@ impl SheetState {
             put.push((cell(tr, cj), all, false));
         }
         let bold = {
-            let mut e = self.doc.borrow_mut();
+            let mut e = self.doc_mut();
             let base = e.engine.style(sheet, at);
             let mut style = e
                 .engine

@@ -1,4 +1,6 @@
-.sheet { display: grid; grid-template-columns: 52px minmax(0, 1fr); grid-template-rows: auto auto 24px minmax(0, 1fr) auto; height: 100%; }
+.sheet { --z: 1; display: grid; grid-template-columns: calc(52px * var(--z)) minmax(0, 1fr); grid-template-rows: auto auto calc(24px * var(--z)) minmax(0, 1fr) auto; height: 100%; }
+/* The zoom: what is drawn on the grid and on its headings is scaled; the scroll area and its sizes are the browser's. */
+.sizer, .hdr-window { zoom: var(--z); }
 .bar { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; padding: 4px 8px; border-bottom: 1px solid var(--office-grid); background: var(--office-head-bg); }
 .bar .name { min-width: 56px; padding: 4px 8px; text-align: center; font-weight: 600; border: 1px solid var(--office-grid); border-radius: 4px; background: var(--office-bg); }
 .bar .formula { flex: 1; min-width: 0; min-height: 28px; padding: 2px 8px; font: inherit; color: inherit; background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 4px; }

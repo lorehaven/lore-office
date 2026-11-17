@@ -81,6 +81,31 @@ fn sheet_screen(state: &SheetState) -> View {
         create_effect(move || pages.set(((vp.get().1 / ROW_H) as u32).max(1)));
     }
 
+    // The grid is drawn zoomed (`zoom` in the style sheet), so what the browser reports is bigger than the sheet's pixels: the
+    // scroll position and the size of the view are kept in the sheet's, and are scaled when the zoom changes.
+    {
+        let (zoom, top, left, vp) = (
+            state.zoom.clone(),
+            scroll_top.clone(),
+            scroll_left.clone(),
+            viewport.clone(),
+        );
+        let before = std::rc::Rc::new(std::cell::Cell::new(100_u32));
+        create_effect(move || {
+            let now = zoom.get();
+            let was = before.replace(now);
+            if was != now {
+                let k = f64::from(was) / f64::from(now);
+                batch(|| {
+                    top.set(top.get_untracked() * k);
+                    left.set(left.get_untracked() * k);
+                    let (w, h) = vp.get_untracked();
+                    vp.set((w * k, h * k));
+                });
+            }
+        });
+    }
+    let shown_zoom = state.zoom.clone();
     // A border being dragged is followed wherever the pointer goes: its moves bubble up to here.
     let (moving, releasing, dragged) = (state.clone(), state.clone(), state.clone());
     let (drag_top, drag_left, drag_vp, drag_axes) = (
@@ -91,6 +116,9 @@ fn sheet_screen(state: &SheetState) -> View {
     );
     div()
         .class("sheet")
+        .css("--z", move || {
+            format!("{}", f64::from(shown_zoom.get()) / 100.0)
+        })
         .child(office_cloud_ui::overlay())
         .on(EventKind::PointerMove, move |e| {
             if let Event::PointerMove(p) = e {
@@ -1295,6 +1323,29 @@ fn freeze_menu(state: &SheetState) -> Element {
     )
 }
 
+/// The zoom of the grid: out, back to 100 percent, in.
+fn zoom_group(state: &SheetState) -> Element {
+    let (out, now, inn, shown) = (
+        state.clone(),
+        state.clone(),
+        state.clone(),
+        state.zoom.clone(),
+    );
+    group(
+        "Zoom",
+        vec![
+            office_ui::tool("\u{2212}", "Zoom out (Ctrl+wheel)", move || out.zoom_by(-1)),
+            button()
+                .attr("type", "button")
+                .class("tool")
+                .attr("title", crate::i18n::tr("Back to 100%"))
+                .text_fn(move || format!("{}%", shown.get()))
+                .on_click(move || now.zoom_by(0)),
+            office_ui::tool("\u{FF0B}", "Zoom in (Ctrl+wheel)", move || inn.zoom_by(1)),
+        ],
+    )
+}
+
 /// One labelled section of the ribbon.
 fn group(name: &'static str, items: Vec<Element>) -> Element {
     office_ui::group(name, items.into_iter().map(IntoView::into_view).collect())
@@ -1321,7 +1372,10 @@ fn ribbon(state: &SheetState) -> Element {
         ("Home", home),
         ("Number", number.into_iter().chain(clear).collect()),
         ("Cells", cells.into_iter().chain(insert).collect()),
-        ("Layout", layout.into_iter().collect()),
+        (
+            "Layout",
+            layout.into_iter().chain(Some(zoom_group(state))).collect(),
+        ),
         ("Data", data.into_iter().chain(rules).collect()),
     ];
     office_ui::ribbon_named(
@@ -2442,6 +2496,13 @@ fn grid(
         .child(panes(state, window));
 
     let (top, left, vp) = (top.clone(), left.clone(), viewport.clone());
+    let (zoom_scroll, zoom_size, zoom_pad_top, zoom_pad_left, zoom_wheel) = (
+        state.zoom.clone(),
+        state.zoom.clone(),
+        state.zoom.clone(),
+        state.zoom.clone(),
+        state.clone(),
+    );
     let (keys, key_up, up, copy, cut, paste) = (
         state.clone(),
         state.clone(),
@@ -2458,11 +2519,22 @@ fn grid(
         // Moving into view lands beyond the frozen rows and columns, not under them.
         .css("scroll-padding-top", move || {
             let a = pad_top.get();
-            format!("{}px", a.rows.offset(a.frozen.0))
+            let z = f64::from(zoom_pad_top.get()) / 100.0;
+            format!("{}px", a.rows.offset(a.frozen.0) * z)
         })
         .css("scroll-padding-left", move || {
             let a = pad_left.get();
-            format!("{}px", a.cols.offset(a.frozen.1))
+            let z = f64::from(zoom_pad_left.get()) / 100.0;
+            format!("{}px", a.cols.offset(a.frozen.1) * z)
+        })
+        // Ctrl and the wheel zoom the grid (the browser's own page zoom does not get it).
+        .on(EventKind::Wheel, move |e| {
+            if let Event::Wheel(w) = e
+                && (w.ctrl || w.meta)
+            {
+                prevent_default();
+                zoom_wheel.zoom_by(if w.dy > 0.0 { -1 } else { 1 });
+            }
         })
         .on_keydown(move |k| {
             keys.set_shift(k.shift);
@@ -2506,15 +2578,17 @@ fn grid(
         .attr("aria-colcount", COLS.to_string())
         .on(EventKind::Scroll, move |e| {
             if let Event::Scroll(s) = e {
+                let z = f64::from(zoom_scroll.get_untracked()) / 100.0;
                 batch(|| {
-                    top.set(s.top);
-                    left.set(s.left);
+                    top.set(s.top / z);
+                    left.set(s.left / z);
                 });
             }
         })
         .on(EventKind::Resize, move |e| {
             if let Event::Resize(s) = e {
-                vp.set((s.width, s.height));
+                let z = f64::from(zoom_size.get_untracked()) / 100.0;
+                vp.set((s.width / z, s.height / z));
             }
         })
         .child(sizer)

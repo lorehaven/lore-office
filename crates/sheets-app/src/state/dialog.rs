@@ -865,7 +865,7 @@ impl SheetState {
                 .rename_table(&f(0))
                 .map(|()| format!("Renamed to {}", f(0).trim())),
             DialogId::DeleteName => {
-                self.doc.borrow_mut().engine.define_name(&f(0), "");
+                self.doc_mut().engine.define_name(&f(0), "");
                 self.bump();
                 Ok(format!("Deleted {}", f(0)))
             }

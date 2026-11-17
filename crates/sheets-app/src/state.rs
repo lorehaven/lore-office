@@ -183,10 +183,20 @@ struct Resize {
 
 const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+/// The cells written since the changes were last taken, and whether anything else changed (rows inserted, a sheet added, a
+/// width set): then only the whole file says what the document is.
+#[derive(Debug, Default)]
+struct Track {
+    cells: Vec<crate::sync::Written>,
+    opaque: bool,
+}
+
 /// A workbook being edited. Cloning shares it.
 #[derive(Clone)]
 pub struct SheetState {
     doc: Rc<RefCell<Xlsx>>,
+    /// What changed since a document in the cloud was last sent (see [`SheetState::take_changes`]).
+    track: Rc<RefCell<Track>>,
     inner: Rc<RefCell<Inner>>,
     /// Set when a text field handled a key that would also reach the grid (the field is inside it): the grid skips it.
     swallow: Rc<Cell<bool>>,
@@ -197,6 +207,8 @@ pub struct SheetState {
     shift: Rc<Cell<bool>>,
     /// Where the columns and rows are, for the sheet on screen.
     pub axes: Signal<Rc<Axes>>,
+    /// The zoom of the grid, in percent.
+    pub zoom: Signal<u32>,
     /// Whether the text being edited is in the cell itself (typing in the grid) rather than in the formula bar.
     pub edit_in_cell: Signal<bool>,
     /// The sheet on screen.
@@ -292,11 +304,13 @@ impl SheetState {
         crate::i18n::reset();
         let state = Self {
             doc: Rc::new(RefCell::new(Xlsx::new(workbook))),
+            track: Rc::default(),
             inner: Rc::default(),
             swallow: Rc::default(),
             resizing: Rc::default(),
             resized: Rc::default(),
             shift: Rc::default(),
+            zoom: create_signal(100),
             axes: create_signal(Rc::new(Axes {
                 cols: Axis::new(COL_W, COLS, []),
                 rows: Axis::new(ROW_H, ROWS, []),
@@ -998,6 +1012,75 @@ impl SheetState {
         true
     }
 
+    /// The workbook, to be changed in a way no cell list describes: the whole file is what says what it is now.
+    fn doc_mut(&self) -> std::cell::RefMut<'_, Xlsx> {
+        self.track.borrow_mut().opaque = true;
+        self.doc.borrow_mut()
+    }
+
+    /// What changed since this was last asked: nothing, the cells that were written, or (for anything else) the whole file.
+    pub fn take_changes(&self) -> Option<office_cloud_ui::Change> {
+        let mut track = self.track.borrow_mut();
+        if track.opaque {
+            *track = Track::default();
+            return Some(office_cloud_ui::Change::Whole);
+        }
+        if track.cells.is_empty() {
+            return None;
+        }
+        // The last write to a cell is the one that counts.
+        let mut seen = std::collections::HashSet::new();
+        let mut last: Vec<crate::sync::Written> = Vec::new();
+        for w in track.cells.drain(..).rev() {
+            if seen.insert((w.sheet, w.at)) {
+                last.push(w);
+            }
+        }
+        last.reverse();
+        Some(office_cloud_ui::Change::Ops(crate::sync::encode(&last)))
+    }
+
+    /// Write the cells of a change someone else made. Cells this page has changed and not yet sent keep what they have: its
+    /// change comes after theirs.
+    ///
+    /// # Errors
+    ///
+    /// A message when the change cannot be read.
+    pub fn apply_remote(&self, op: &[u8]) -> Result<(), String> {
+        let cells = crate::sync::decode(op)?;
+        let waiting: std::collections::HashSet<(usize, CellRef)> = self
+            .track
+            .borrow()
+            .cells
+            .iter()
+            .map(|w| (w.sheet, w.at))
+            .collect();
+        let sheets = self.sheet_names().len();
+        {
+            let mut doc = self.doc.borrow_mut();
+            for w in cells {
+                if w.sheet >= sheets || waiting.contains(&(w.sheet, w.at)) {
+                    continue;
+                }
+                let style = doc.engine.style_id(&w.style);
+                write(
+                    &mut doc.engine,
+                    w.sheet,
+                    w.at,
+                    &CellState {
+                        content: w.content,
+                        style,
+                    },
+                );
+            }
+        }
+        batch(|| {
+            self.refresh_axes();
+            self.bump();
+        });
+        Ok(())
+    }
+
     fn apply(&self, sheet: usize, edits: Vec<(CellRef, CellState)>) -> Vec<Delta> {
         let mut doc = self.doc.borrow_mut();
         let mut step = Vec::new();
@@ -1007,6 +1090,18 @@ impl SheetState {
                 continue;
             }
             write(&mut doc.engine, sheet, at, &after);
+            self.track.borrow_mut().cells.push(crate::sync::Written {
+                sheet,
+                at,
+                content: after.content.clone(),
+                style: doc
+                    .engine
+                    .workbook()
+                    .styles
+                    .get(after.style as usize)
+                    .cloned()
+                    .unwrap_or_default(),
+            });
             step.push(Delta {
                 sheet,
                 at,
@@ -1077,6 +1172,18 @@ impl SheetState {
                     for d in ordered {
                         let state = if forward { &d.after } else { &d.before };
                         write(&mut doc.engine, d.sheet, d.at, state);
+                        self.track.borrow_mut().cells.push(crate::sync::Written {
+                            sheet: d.sheet,
+                            at: d.at,
+                            content: state.content.clone(),
+                            style: doc
+                                .engine
+                                .workbook()
+                                .styles
+                                .get(state.style as usize)
+                                .cloned()
+                                .unwrap_or_default(),
+                        });
                     }
                 }
                 if let Some(first) = step.first() {
@@ -1094,7 +1201,7 @@ impl SheetState {
                     workbook: self.doc.borrow().engine.workbook().clone(),
                     sheet: self.sheet(),
                 };
-                self.doc.borrow_mut().engine.restore(saved.workbook);
+                self.doc_mut().engine.restore(saved.workbook);
                 let names = self.sheet_names().len();
                 batch(|| {
                     self.active.set(saved.sheet.min(names.saturating_sub(1)));
@@ -1125,7 +1232,7 @@ impl SheetState {
             workbook: self.doc.borrow().engine.workbook().clone(),
             sheet: self.sheet(),
         };
-        if !change(&mut self.doc.borrow_mut().engine) {
+        if !change(&mut self.doc_mut().engine) {
             return false;
         }
         self.inner.borrow_mut().history.push_book(before);
@@ -1369,7 +1476,7 @@ impl SheetState {
         };
         let mut made: HashMap<(u32, Edges), u32> = HashMap::new();
         let edits: Vec<(CellRef, CellState)> = {
-            let mut doc = self.doc.borrow_mut();
+            let mut doc = self.doc_mut();
             cells
                 .into_iter()
                 .map(|at| {
@@ -1528,7 +1635,7 @@ impl SheetState {
         let sel = self.selection();
         let sheet = self.sheet();
         if want > ROW_H && sel.rows() <= 10_000 {
-            let mut doc = self.doc.borrow_mut();
+            let mut doc = self.doc_mut();
             for row in sel.start.row..=sel.end.row {
                 let own = doc
                     .engine
@@ -1851,6 +1958,25 @@ impl SheetState {
 
     /// A header border was pressed: `row` for a row border, `index` the item above or left of it, `pointer` the pointer's
     /// position along the axis.
+    /// Zoom in (`1`) or out (`-1`) one step; `0` goes back to 100 percent.
+    pub fn zoom_by(&self, step: i32) {
+        const STEPS: [u32; 10] = [50, 67, 80, 90, 100, 110, 125, 150, 200, 300];
+        let now = self.zoom.get_untracked();
+        let at = STEPS.iter().position(|z| *z >= now).unwrap_or(4);
+        let to = if step == 0 {
+            4
+        } else {
+            usize::try_from((i32::try_from(at).unwrap_or(4) + step).clamp(0, 9)).unwrap_or(4)
+        };
+        self.zoom.set(STEPS[to]);
+    }
+
+    /// How much bigger than the sheet's own pixels the grid is drawn (1.0 at 100 percent).
+    #[must_use]
+    pub fn zoom_factor(&self) -> f64 {
+        f64::from(self.zoom.get_untracked()) / 100.0
+    }
+
     pub fn begin_resize(&self, row: bool, index: u32, pointer: f64) {
         let axes = self.axes.get_untracked();
         let size = if row {
@@ -1875,7 +2001,9 @@ impl SheetState {
         } else {
             (MIN_COL_W, MAX_COL_W)
         };
-        let size = (r.size + pointer - r.start).clamp(min, max).round();
+        let size = (r.size + (pointer - r.start) / self.zoom_factor())
+            .clamp(min, max)
+            .round();
         let sheet = self.sheet();
         let current = {
             let a = self.axes.get_untracked();
@@ -1916,7 +2044,7 @@ impl SheetState {
 
     fn set_size(&self, sheet: usize, row: bool, index: u32, size: Option<f64>) {
         {
-            let mut doc = self.doc.borrow_mut();
+            let mut doc = self.doc_mut();
             if row {
                 doc.engine.set_row_height(sheet, index, size);
             } else {
@@ -1979,7 +2107,7 @@ impl SheetState {
             .map(|n| format!("Sheet{n}"))
             .find(|n| !names.iter().any(|e| e.eq_ignore_ascii_case(n)))
             .unwrap_or_default();
-        let added = self.doc.borrow_mut().add_sheet(&name);
+        let added = self.doc_mut().add_sheet(&name);
         if let Some(i) = added {
             self.switch_sheet(i);
         }
@@ -2074,6 +2202,8 @@ impl SheetState {
 
     fn replace(&self, xlsx: Xlsx, name: &str) {
         *self.doc.borrow_mut() = xlsx;
+        // A file loaded is the baseline: nothing is waiting to be sent.
+        *self.track.borrow_mut() = Track::default();
         self.apply_clock();
         *self.inner.borrow_mut() = Inner::default();
         self.history_changed();
@@ -2665,7 +2795,7 @@ impl SheetState {
             return;
         }
         let result = check_sheet_name(&name).and_then(|()| {
-            if self.doc.borrow_mut().engine.rename_sheet(index, &name) {
+            if self.doc_mut().engine.rename_sheet(index, &name) {
                 Ok(())
             } else {
                 Err(format!("There is already a sheet called \"{name}\""))
@@ -2705,7 +2835,7 @@ impl SheetState {
         let Some(name) = self.sheet_names().get(index).cloned() else {
             return;
         };
-        if !self.doc.borrow_mut().remove_sheet(index) {
+        if !self.doc_mut().remove_sheet(index) {
             return;
         }
         let last = self.sheet_names().len() - 1;

@@ -19,6 +19,7 @@ The service keeps no database. A document is two files, its bytes and a small de
 | `size` | integer | bytes |
 | `modified` | integer | seconds since 1970 |
 | `etag` | string | changes when the bytes do; `<crc32 in 8 hexadecimal digits>-<length>` in the local store |
+| `version` | integer | the version of the log the stored file stands for; 0 for a document that has no log; absent in older records |
 | `folder` | string | the folder it is in (`Work/2026`); empty for the top; absent in older records, which read as empty |
 
 `Share`:
@@ -42,6 +43,7 @@ The service keeps no database. A document is two files, its bytes and a small de
 ```text
 <DATA_DIR>/users/<safe name>-<crc32 of the name, 8 hex digits>/<id>.bin    the document
 <DATA_DIR>/users/<safe name>-<crc32 of the name, 8 hex digits>/<id>.json   its `DocMeta`
+<DATA_DIR>/users/<key>/<id>.ops/<n, 10 digits>.json                        change number n of the document's log
 <DATA_DIR>/users/<key>/folders.json                                        the folders the person made (JSON array of paths)
 <DATA_DIR>/shares/<token>.json                                             a `Share`
 <DATA_DIR>/grants/to/<with key>/<owner key>-<doc>.json                     a `Grant`, where the person it is shared with looks
@@ -57,6 +59,7 @@ One warehouse storage per person, made the first time they save, named `lore-<na
 ```text
 docs/<id>.bin
 docs/<id>.json
+ops/<id>/<n, 10 digits>.json
 folders.json
 ```
 

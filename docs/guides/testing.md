@@ -1,7 +1,7 @@
 ---
 title: Testing
 parent: Guides
-nav_order: 7
+nav_order: 8
 ---
 
 `scripts/check.sh` is the one command that every change passes; the pipeline runs the same gates.

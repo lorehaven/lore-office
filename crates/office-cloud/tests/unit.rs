@@ -4,8 +4,9 @@
     clippy::cloned_ref_to_slice_refs
 )]
 use office_cloud::{
-    Error, LocalStore, Rights, Share, Storage, WarehouseStore, clean_folder, grant_doc,
-    granted_meta, new_id, now, open_granted, open_share, safe_name, save_granted, save_share,
+    Error, LocalStore, OpLog, Rights, Share, Since, Storage, WarehouseStore, clean_folder,
+    grant_doc, granted_meta, new_id, now, open_granted, open_share, safe_name, save_granted,
+    save_share,
 };
 
 fn run<F: std::future::Future>(f: F) -> F::Output {
@@ -302,11 +303,132 @@ async fn folders_and_grants(store: &dyn Storage) {
     assert!(store.get("ada", &doc.id).await.is_err());
 }
 
+/// The log of changes beside a document: numbered by the service, refused when begun from an old version, folded into a new
+/// snapshot now and then.
+#[allow(clippy::too_many_lines)]
+async fn change_log(store: &dyn Storage) {
+    let log = OpLog::new();
+    let doc = store
+        .put("ada", None, "Book.xlsx", "sheets", b"v0", None)
+        .await
+        .unwrap();
+    assert_eq!(log.head(store, "ada", &doc.id).await.unwrap(), 0);
+    // Two pages add changes; the second began from the first's number.
+    assert_eq!(
+        log.append(store, "ada", &doc.id, 0, br#"{"a":1}"#)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        log.append(store, "ada", &doc.id, 1, br#"{"b":2}"#)
+            .await
+            .unwrap(),
+        2
+    );
+    // A change that began from version 1 is behind: it is told the latest.
+    assert!(matches!(
+        log.append(store, "ada", &doc.id, 1, br#"{"c":3}"#).await,
+        Err(Error::Behind { head: 2 })
+    ));
+    match log.since(store, "ada", &doc.id, 0).await.unwrap() {
+        Since::Ops { head, version, ops } => {
+            assert_eq!((head, version), (2, 0));
+            assert_eq!(
+                ops,
+                [(1, br#"{"a":1}"#.to_vec()), (2, br#"{"b":2}"#.to_vec())]
+            );
+        }
+        other @ Since::Gone { .. } => panic!("{other:?}"),
+    }
+    match log.since(store, "ada", &doc.id, 2).await.unwrap() {
+        Since::Ops { ops, .. } => assert!(ops.is_empty(), "nothing after the latest"),
+        other @ Since::Gone { .. } => panic!("{other:?}"),
+    }
+    // A fresh log (as after a restart) finds the same latest number from what is stored.
+    assert_eq!(OpLog::new().head(store, "ada", &doc.id).await.unwrap(), 2);
+    // A snapshot at an old version is refused; at the latest it folds the changes in.
+    assert!(matches!(
+        log.snapshot(
+            store,
+            "ada",
+            &doc.id,
+            "Book.xlsx",
+            "sheets",
+            b"v1",
+            Some(1),
+            None
+        )
+        .await,
+        Err(Error::Behind { head: 2 })
+    ));
+    let (meta, head) = log
+        .snapshot(
+            store,
+            "ada",
+            &doc.id,
+            "Book.xlsx",
+            "sheets",
+            b"v2",
+            Some(2),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!((meta.version, head), (2, 2));
+    assert_eq!(store.get("ada", &doc.id).await.unwrap().1, b"v2");
+    assert_eq!(
+        store.ops_head("ada", &doc.id).await.unwrap(),
+        0,
+        "the changes were dropped"
+    );
+    assert_eq!(
+        log.append(store, "ada", &doc.id, 2, br#"{"d":4}"#)
+            .await
+            .unwrap(),
+        3
+    );
+    // A page that is behind the snapshot is told to fetch the file again.
+    assert!(matches!(
+        log.since(store, "ada", &doc.id, 1).await.unwrap(),
+        Since::Gone {
+            head: 3,
+            version: 2
+        }
+    ));
+    // A whole-file save is a new version after the latest change: followers fetch it again.
+    let (meta, head) = log
+        .snapshot(
+            store,
+            "ada",
+            &doc.id,
+            "Book.xlsx",
+            "sheets",
+            b"whole",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!((meta.version, head), (4, 4));
+    assert!(matches!(
+        log.since(store, "ada", &doc.id, 3).await.unwrap(),
+        Since::Gone {
+            head: 4,
+            version: 4
+        }
+    ));
+    store.delete("ada", &doc.id).await.unwrap();
+    log.forget("ada", &doc.id).await;
+    assert!(log.head(store, "ada", &doc.id).await.is_err());
+}
+
 #[quench_test::test]
 fn the_local_store_has_folders_and_documents_shared_with_a_named_person() {
     run(async {
         let (s, dir) = store(1 << 20);
         folders_and_grants(&s).await;
+        change_log(&s).await;
         let _ = std::fs::remove_dir_all(dir);
     });
 }

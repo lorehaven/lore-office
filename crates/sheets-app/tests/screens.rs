@@ -4255,3 +4255,143 @@ fn typing_a_new_name_in_the_ribbon_renames_the_document_and_keeps_the_extension(
     s.r.fire(field, &Event::Change("   ".into()));
     assert_eq!(s.state.name.get_untracked(), "Budget 2027.xlsx");
 }
+
+fn ops(change: Option<office_cloud_ui::Change>) -> Vec<u8> {
+    match change {
+        Some(office_cloud_ui::Change::Ops(bytes)) => bytes,
+        other => panic!("not a change of cells: {other:?}"),
+    }
+}
+
+#[quench_test::test]
+fn what_is_typed_is_taken_as_cells_and_anything_else_as_the_whole_file() {
+    let s = open(5);
+    assert!(s.state.take_changes().is_none(), "nothing yet");
+    s.state.set_text(at("B2"), "hello");
+    s.state.set_text(at("C3"), "=1+2");
+    s.state.set_text(at("B2"), "again");
+    let taken = ops(s.state.take_changes());
+    let written = sheets_app::sync::decode(&taken).unwrap();
+    assert_eq!(
+        written.len(),
+        2,
+        "the last write to a cell is the one that counts"
+    );
+    assert!(
+        written.iter().any(|w| w.at == at("B2")
+            && w.content
+                == Some(sheets_model::Content::Value(sheets_model::Value::Text(
+                    "again".into()
+                )))),
+        "{written:?}"
+    );
+    assert!(written.iter().any(
+        |w| w.at == at("C3") && w.content == Some(sheets_model::Content::Formula("1+2".into()))
+    ));
+    assert!(s.state.take_changes().is_none(), "taken once");
+    // Undo is a change of cells too: the last step put B2 back to what it was.
+    s.state.undo();
+    let undone = sheets_app::sync::decode(&ops(s.state.take_changes())).unwrap();
+    assert_eq!(undone.len(), 1, "{undone:?}");
+    assert_eq!(undone[0].at, at("B2"));
+    assert_eq!(
+        undone[0].content,
+        Some(sheets_model::Content::Value(sheets_model::Value::Text(
+            "hello".into()
+        )))
+    );
+    // A sheet added is not a change of cells: the whole file is what says it.
+    s.state.add_sheet();
+    assert_eq!(s.state.take_changes(), Some(office_cloud_ui::Change::Whole));
+    assert!(s.state.take_changes().is_none());
+}
+
+#[quench_test::test]
+fn another_pages_cells_are_written_except_the_ones_this_page_changed_and_has_not_sent() {
+    let (a, b) = (open(5), open(5));
+    a.state.set_text(at("A1"), "from a");
+    a.state.set_text(at("A2"), "2");
+    let theirs = ops(a.state.take_changes());
+    b.state.set_text(at("A1"), "mine");
+    b.state.apply_remote(&theirs).unwrap();
+    assert_eq!(b.state.edit_text(at("A2")), "2", "their cell is written");
+    assert_eq!(
+        b.state.edit_text(at("A1")),
+        "mine",
+        "mine waits to be sent, and comes after theirs"
+    );
+    // What was written for others is not a change of this page: only its own is sent.
+    let mine = sheets_app::sync::decode(&ops(b.state.take_changes())).unwrap();
+    assert_eq!(mine.len(), 1);
+    assert_eq!(mine[0].at, at("A1"));
+    assert!(b.state.apply_remote(b"not json").is_err());
+}
+
+#[quench_test::test]
+fn a_cell_change_keeps_what_is_in_the_cell_and_how_it_looks_whatever_the_tables_of_the_pages() {
+    use sheets_app::sync::{Written, decode, encode};
+    use sheets_model::{Align, Content, Line, LineKind, Style, Value};
+    let style = Style {
+        number_format: "#,##0.00".into(),
+        bold: true,
+        italic: true,
+        color: Some(0x00FF_0000),
+        fill: Some(0x00FF_FF00),
+        align: Align::Right,
+        wrap: true,
+        font_size: Some(24),
+        font_name: Some("Calibri".into()),
+        border: sheets_model::Border {
+            top: Some(Line {
+                kind: LineKind::Double,
+                color: Some(0x0000_00FF),
+            }),
+            ..sheets_model::Border::default()
+        },
+        ..Style::default()
+    };
+    let cells = [
+        Content::Value(Value::Number(1.5)),
+        Content::Value(Value::Number(-2e30)),
+        Content::Value(Value::Text("zażółć \"quoted\" \n line".into())),
+        Content::Value(Value::Bool(true)),
+        Content::Value(Value::Error(sheets_model::CellError::Div0)),
+        Content::Formula("SUM(A1:A3)".into()),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, content)| Written {
+        sheet: 1,
+        at: CellRef::new(u32::try_from(i).unwrap(), 2),
+        content: Some(content),
+        style: style.clone(),
+    })
+    .chain([Written {
+        sheet: 0,
+        at: CellRef::new(9, 9),
+        content: None,
+        style: Style::default(),
+    }])
+    .collect::<Vec<_>>();
+    assert_eq!(decode(&encode(&cells)).unwrap(), cells);
+    assert!(decode(b"{}").is_err());
+    assert!(decode(br#"{"cells":[{"r":1}]}"#).is_err());
+}
+
+#[quench_test::test]
+fn zoom_steps_up_and_down_and_back_to_one_hundred() {
+    let s = open(5);
+    let state = s.state;
+    assert_eq!(state.zoom.get_untracked(), 100);
+    state.zoom_by(1);
+    assert_eq!(state.zoom.get_untracked(), 110);
+    state.zoom_by(-1);
+    state.zoom_by(-1);
+    assert_eq!(state.zoom.get_untracked(), 90);
+    state.zoom_by(0);
+    assert_eq!(state.zoom.get_untracked(), 100);
+    for _ in 0..20 {
+        state.zoom_by(1);
+    }
+    assert_eq!(state.zoom.get_untracked(), 300);
+}

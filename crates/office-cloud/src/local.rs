@@ -82,6 +82,10 @@ impl LocalStore {
         })
     }
 
+    fn ops_dir(&self, user: &str, id: &str) -> PathBuf {
+        self.user_dir(user).join(format!("{id}.ops"))
+    }
+
     fn grant_paths(&self, owner: &str, doc: &str, with: &str) -> Result<[PathBuf; 2]> {
         Self::check_id(doc)?;
         let (o, w) = (user_key(owner), user_key(with));
@@ -185,7 +189,7 @@ impl Storage for LocalStore {
         }
         let dir = self.user_dir(user);
         std::fs::create_dir_all(&dir).map_err(|e| io(&e))?;
-        let (id, before, folder) = match id {
+        let (id, before, folder, old_version) = match id {
             Some(id) => {
                 Self::check_id(id)?;
                 let old = Self::read_meta(&dir, id)?;
@@ -194,9 +198,9 @@ impl Storage for LocalStore {
                 {
                     return Err(Error::Conflict { etag: old.etag });
                 }
-                (id.to_string(), old.size, old.folder)
+                (id.to_string(), old.size, old.folder, old.version)
             }
-            None => (new_id(8), 0, String::new()),
+            None => (new_id(8), 0, String::new(), 0),
         };
         let used = Self::used(&dir).saturating_sub(before);
         if used + bytes.len() as u64 > self.quota {
@@ -213,6 +217,7 @@ impl Storage for LocalStore {
             modified: now(),
             etag: etag_of(bytes),
             folder,
+            version: old_version,
         };
         // The bytes first, under a name of their own, then in place: a failure part way leaves the old document whole.
         let tmp = dir.join(format!("{id}.tmp"));
@@ -229,6 +234,7 @@ impl Storage for LocalStore {
         Self::read_meta(&dir, id)?;
         std::fs::remove_file(dir.join(format!("{id}.bin"))).map_err(|e| io(&e))?;
         std::fs::remove_file(dir.join(format!("{id}.json"))).map_err(|e| io(&e))?;
+        let _ = std::fs::remove_dir_all(self.ops_dir(user, id));
         // The links and the grants to it go with it.
         for share in self.shares_of(user).await? {
             if share.doc == id {
@@ -283,6 +289,71 @@ impl Storage for LocalStore {
             return Err(Error::NotFound);
         }
         std::fs::remove_file(self.share_path(token)?).map_err(|e| io(&e))
+    }
+
+    async fn put_op(&self, owner: &str, id: &str, n: u64, bytes: &[u8]) -> Result<()> {
+        Self::check_id(id)?;
+        Self::read_meta(&self.user_dir(owner), id)?;
+        let dir = self.ops_dir(owner, id);
+        std::fs::create_dir_all(&dir).map_err(|e| io(&e))?;
+        std::fs::write(dir.join(format!("{n:010}.json")), bytes).map_err(|e| io(&e))
+    }
+
+    async fn ops_after(&self, owner: &str, id: &str, after: u64) -> Result<Vec<(u64, Vec<u8>)>> {
+        Self::check_id(id)?;
+        let Ok(entries) = std::fs::read_dir(self.ops_dir(owner, id)) else {
+            return Ok(Vec::new());
+        };
+        let mut out: Vec<(u64, Vec<u8>)> = entries
+            .filter_map(std::result::Result::ok)
+            .filter_map(|e| {
+                let n: u64 = e.path().file_stem()?.to_str()?.parse().ok()?;
+                (n > after).then(|| std::fs::read(e.path()).ok().map(|b| (n, b)))?
+            })
+            .collect();
+        out.sort_by_key(|(n, _)| *n);
+        Ok(out)
+    }
+
+    async fn ops_head(&self, owner: &str, id: &str) -> Result<u64> {
+        Self::check_id(id)?;
+        Ok(
+            std::fs::read_dir(self.ops_dir(owner, id)).map_or(0, |entries| {
+                entries
+                    .filter_map(std::result::Result::ok)
+                    .filter_map(|e| e.path().file_stem()?.to_str()?.parse::<u64>().ok())
+                    .max()
+                    .unwrap_or(0)
+            }),
+        )
+    }
+
+    async fn drop_ops(&self, owner: &str, id: &str, upto: u64) -> Result<()> {
+        Self::check_id(id)?;
+        let Ok(entries) = std::fs::read_dir(self.ops_dir(owner, id)) else {
+            return Ok(());
+        };
+        for e in entries.filter_map(std::result::Result::ok) {
+            if e.path()
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(|s| s.parse::<u64>().ok())
+                .is_some_and(|n| n <= upto)
+            {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+        Ok(())
+    }
+
+    async fn set_version(&self, owner: &str, id: &str, version: u64) -> Result<DocMeta> {
+        Self::check_id(id)?;
+        let dir = self.user_dir(owner);
+        let mut meta = Self::read_meta(&dir, id)?;
+        meta.version = version;
+        std::fs::write(dir.join(format!("{id}.json")), json::to_string(&meta))
+            .map_err(|e| io(&e))?;
+        Ok(meta)
     }
 
     async fn folders(&self, user: &str) -> Result<Vec<String>> {

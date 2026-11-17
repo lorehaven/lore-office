@@ -38,6 +38,16 @@ pub trait Storage: Send + Sync {
     async fn make_folder(&self, user: &str, path: &str) -> Result<()>;
     /// Take a folder away; it must hold no document and no folder.
     async fn delete_folder(&self, user: &str, path: &str) -> Result<()>;
+    /// Keep change number `n` of a document's log (a new file: it is never rewritten).
+    async fn put_op(&self, owner: &str, id: &str, n: u64, bytes: &[u8]) -> Result<()>;
+    /// The changes after number `after`, oldest first.
+    async fn ops_after(&self, owner: &str, id: &str, after: u64) -> Result<Vec<(u64, Vec<u8>)>>;
+    /// The number of the latest change kept, or 0 when there is none.
+    async fn ops_head(&self, owner: &str, id: &str) -> Result<u64>;
+    /// Take away the changes up to and including `upto` (they are in the stored file now).
+    async fn drop_ops(&self, owner: &str, id: &str, upto: u64) -> Result<()>;
+    /// Say which version of the log the stored file stands for.
+    async fn set_version(&self, owner: &str, id: &str, version: u64) -> Result<DocMeta>;
     /// Put a document in a folder (`""` is the top). The bytes and the `etag` stay as they are.
     async fn move_doc(&self, user: &str, id: &str, folder: &str) -> Result<DocMeta>;
     /// Keep a grant (the document it names must exist).

@@ -17,6 +17,8 @@ use office_ui::{MenuItem, t};
 use quench_serde::{Value, json};
 use quench_ui::prelude::*;
 
+mod log;
+use log::LOG_QUIET_MS;
 mod panel;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -118,6 +120,24 @@ pub trait Transport {
     );
 }
 
+/// What an app that describes its changes has to send since the last time it was asked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Change {
+    /// A change a page can apply (JSON the app reads back): the cells that were written, say.
+    Ops(Vec<u8>),
+    /// Something no such change describes: the whole file is what the document is now.
+    Whole,
+}
+
+/// How an app takes part in a document's log of changes (see the guide "Sync and presence").
+#[derive(Clone)]
+pub struct DeltaHooks {
+    /// What changed since this was last called; `None` for nothing.
+    pub take: Rc<dyn Fn() -> Option<Change>>,
+    /// Make a change someone else made.
+    pub apply: Rc<dyn Fn(&[u8]) -> Result<(), String>>,
+}
+
 /// What the app gives the cloud.
 #[derive(Clone)]
 pub struct Binding {
@@ -132,14 +152,19 @@ pub struct Binding {
     pub revision: Rc<dyn Fn() -> u64>,
     /// Whether changes to a document that is in the cloud are saved there by themselves, a moment after the last one.
     pub autosave: bool,
+    /// Present for an app whose changes can be sent one by one: the document is then followed through its log of changes
+    /// and the whole file is sent only now and then.
+    pub delta: Option<DeltaHooks>,
 }
 
 /// How often a page looks at its document for changes (milliseconds).
-const TICK_MS: u32 = 400;
+pub(crate) const TICK_MS: u32 = 400;
 /// How often a page asks whether someone else saved the open document (milliseconds).
-const POLL_MS: u32 = 5000;
+const POLL_MS: u32 = 2000;
 /// How long after the last change a document in the cloud is saved (milliseconds).
-const AUTOSAVE_MS: u32 = 2000;
+const AUTOSAVE_MS: u32 = 1000;
+/// The longest changes wait to be saved when the person keeps typing without a pause (milliseconds).
+const MAX_WAIT_MS: u32 = 8000;
 
 /// Which part of the panel shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -217,6 +242,17 @@ pub struct Cloud {
     /// The revision seen at the last look, and how long it has stayed the same (milliseconds).
     seen: Rc<Cell<u64>>,
     quiet: Rc<Cell<u32>>,
+    /// How long there have been changes not yet sent (milliseconds).
+    waiting: Rc<Cell<u32>>,
+    /// The log of the open document: the version of the file it was fetched or saved at, the latest change this page has made
+    /// or applied, and the changes taken from the app that are not sent yet.
+    version: Rc<Cell<u64>>,
+    head: Rc<Cell<u64>>,
+    outbox: Rc<RefCell<Vec<Vec<u8>>>>,
+    /// The whole file is to be sent (the app changed something no change describes, or the person saved), and whether to say so.
+    want_whole: Rc<Cell<bool>>,
+    announce: Rc<Cell<bool>>,
+    catching: Rc<Cell<bool>>,
     /// Saving by itself is off after a failure, until the person saves.
     paused: Rc<Cell<bool>>,
     saving: Rc<Cell<bool>>,
@@ -260,6 +296,13 @@ impl Cloud {
             baseline: Rc::default(),
             seen: Rc::default(),
             quiet: Rc::default(),
+            waiting: Rc::default(),
+            version: Rc::default(),
+            head: Rc::default(),
+            outbox: Rc::default(),
+            want_whole: Rc::default(),
+            announce: Rc::default(),
+            catching: Rc::default(),
             paused: Rc::default(),
             saving: Rc::default(),
             started: Rc::default(),
@@ -319,6 +362,10 @@ impl Cloud {
 
     /// One look at the document: has it changed, and has it been quiet long enough to send?
     fn look(&self) {
+        if self.following() {
+            self.look_log();
+            return;
+        }
         let now = self.revision();
         if now == self.seen.get() {
             self.quiet.set(self.quiet.get().saturating_add(TICK_MS));
@@ -327,20 +374,24 @@ impl Cloud {
             self.quiet.set(0);
         }
         if self.opened.get_untracked().is_none() || now == self.baseline.get() {
+            self.waiting.set(0);
             return;
         }
         if !self.dirty.get_untracked() {
             self.dirty.set(true);
         }
+        self.waiting.set(self.waiting.get().saturating_add(TICK_MS));
         let by_itself = self.binding.borrow().as_ref().is_some_and(|b| b.autosave);
+        // After a pause, or - for someone who types without one - after the longest wait.
         if by_itself
-            && self.quiet.get() >= AUTOSAVE_MS
+            && (self.quiet.get() >= AUTOSAVE_MS || self.waiting.get() >= MAX_WAIT_MS)
             && !self.paused.get()
             && self.writable()
             && self.newer.get_untracked().is_none()
             && !self.saving.get()
         {
             self.quiet.set(0);
+            self.waiting.set(0);
             self.save_inner(true);
         }
     }
@@ -348,7 +399,11 @@ impl Cloud {
     fn poll(&self) {
         let me = self.clone();
         quench_ui::platform::after(POLL_MS, move || {
-            me.check_remote();
+            if me.following() {
+                me.catch_up();
+            } else {
+                me.check_remote();
+            }
             me.poll();
         });
     }
@@ -424,6 +479,7 @@ impl Cloud {
                 }));
                 me.newer.set(None);
                 me.mark_clean((b.revision)());
+                me.note_log(&r);
                 me.status
                     .set(t("Updated: someone else changed this document"));
             }
@@ -711,6 +767,7 @@ impl Cloud {
                         }));
                         me.newer.set(None);
                         me.mark_clean(me.revision());
+                        me.note_log(&r);
                         me.panel.set(Panel::Closed);
                         me.status.set(format!(
                             "{} {name} ({owner}, {})",
@@ -803,10 +860,24 @@ impl Cloud {
 
     /// `quiet`: a save the person did not ask for (changes sent by themselves), which says nothing when it works.
     fn save_inner(&self, quiet: bool) {
+        // A document followed through its log is saved by sending the whole file at the latest version.
+        if !quiet && self.following() && self.writable() {
+            self.announce.set(true);
+            self.want_whole.set(true);
+            self.paused.set(false);
+            self.quiet.set(LOG_QUIET_MS);
+            return;
+        }
         let Some(b) = self.binding.borrow().clone() else {
             return;
         };
         let at = (b.revision)();
+        // Making the document in the cloud sends the file whole: what the app had waiting is in it.
+        if self.opened.get_untracked().is_none()
+            && let Some(delta) = &b.delta
+        {
+            let _ = (delta.take)();
+        }
         let Some((name, bytes)) = (b.export)() else {
             if !quiet {
                 self.status.set(t("There is nothing to save"));
@@ -868,6 +939,7 @@ impl Cloud {
                     }));
                     // What was typed while this was on its way is still to be sent.
                     me.mark_clean(at);
+                    me.note_log(&r);
                     me.paused.set(false);
                     if !quiet {
                         me.status.set(t("Saved to the cloud"));
@@ -919,6 +991,7 @@ impl Cloud {
                         }));
                         me.newer.set(None);
                         me.mark_clean(me.revision());
+                        me.note_log(&r);
                         me.panel.set(Panel::Closed);
                         me.status
                             .set(format!("{} {name}", t("Opened from the cloud:")));
@@ -959,6 +1032,7 @@ impl Cloud {
                             edit: share.edit,
                         }));
                         me.mark_clean(me.revision());
+                        me.note_log(&r);
                         me.status.set(format!(
                             "{} {name} ({})",
                             t("Opened from a link:"),
@@ -1180,7 +1254,7 @@ pub fn server_page(address: &str, kind: &str) -> String {
 }
 
 /// Text as it goes in a query: letters, digits and `-_.` as they are, every other byte as `%XX`.
-fn enc(text: &str) -> String {
+pub(crate) fn enc(text: &str) -> String {
     text.bytes()
         .map(|c| {
             if c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.') {

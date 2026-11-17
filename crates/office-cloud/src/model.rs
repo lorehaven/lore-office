@@ -21,6 +21,10 @@ pub struct DocMeta {
     /// The folder it is in (`Reports/2026`); empty for the top.
     #[serde(default)]
     pub folder: String,
+    /// The version of the change log the stored file stands for: the changes after it are kept beside it. 0 for a document
+    /// with no log.
+    #[serde(default)]
+    pub version: u64,
 }
 
 /// What a share link allows.
@@ -136,6 +140,10 @@ pub enum Error {
         used: u64,
         quota: u64,
     },
+    /// A change that began from a version of the log that is no longer the latest: this is the latest.
+    Behind {
+        head: u64,
+    },
     /// A link that only views.
     Denied,
     Invalid(String),
@@ -148,6 +156,7 @@ impl fmt::Display for Error {
             Self::NotFound => f.write_str("not found"),
             Self::Conflict { .. } => f.write_str("the document was changed by someone else"),
             Self::Quota { used, quota } => write!(f, "no room: {used} of {quota} bytes used"),
+            Self::Behind { head } => write!(f, "the document is at version {head}"),
             Self::Denied => f.write_str("this link only lets you view"),
             Self::Invalid(why) => write!(f, "invalid: {why}"),
             Self::Io(why) => write!(f, "storage failed: {why}"),

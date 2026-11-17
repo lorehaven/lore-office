@@ -16,6 +16,7 @@ tags:
   - name: documents
   - name: links
   - name: folders
+  - name: log
   - name: people
   - name: service
 paths:
@@ -105,6 +106,7 @@ paths:
         - { $ref: "#/components/parameters/Name" }
         - { $ref: "#/components/parameters/KindRequired" }
         - { $ref: "#/components/parameters/IfMatch" }
+        - { name: at, in: query, description: The version of the change log the file is the document at (a page that applied every change sends it); refused with 409 and the latest number when changes were added since., schema: { type: integer, minimum: 0 } }
       requestBody: { $ref: "#/components/requestBodies/File" }
       responses:
         "200":
@@ -126,6 +128,119 @@ paths:
         "204": { description: Deleted. }
         "401": { $ref: "#/components/responses/SignIn" }
         "404": { $ref: "#/components/responses/NotFound" }
+  /api/docs/{id}/ops:
+    parameters:
+      - { $ref: "#/components/parameters/Id" }
+    get:
+      tags: [log]
+      summary: The changes after a number
+      security: [{ session: [] }]
+      parameters:
+        - { name: after, in: query, required: true, schema: { type: integer, minimum: 0 } }
+      responses:
+        "200":
+          description: The changes, oldest first, with the latest number and the stored file's version.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [head, version, ops]
+                properties:
+                  head: { type: integer }
+                  version: { type: integer }
+                  ops:
+                    type: array
+                    items:
+                      type: object
+                      required: [n, op]
+                      properties:
+                        n: { type: integer }
+                        op: { description: The change as it was sent. }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "410":
+          description: "The changes it needs were folded into the stored file: fetch the file."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LogNumbers" }
+    post:
+      tags: [log]
+      summary: Add a change
+      security: [{ session: [] }]
+      parameters:
+        - { name: base, in: query, required: true, description: The latest number the sender knew., schema: { type: integer, minimum: 0 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { description: A change the app reads back (for sheets, the cells written). }
+      responses:
+        "200":
+          description: Added; its number.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [n]
+                properties:
+                  n: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/SignIn" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: "`base` is not the latest number; this is."
+          content:
+            application/json:
+              schema: { type: object, required: [head], properties: { head: { type: integer } } }
+  /api/s/{token}/ops:
+    parameters:
+      - { $ref: "#/components/parameters/Token" }
+    get:
+      tags: [log]
+      summary: The changes after a number, through a link
+      security: []
+      parameters:
+        - { name: after, in: query, required: true, schema: { type: integer, minimum: 0 } }
+      responses:
+        "200": { description: As for the person's own document. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "410": { description: Fetch the file. }
+    post:
+      tags: [log]
+      summary: Add a change, through an edit link
+      security: []
+      parameters:
+        - { name: base, in: query, required: true, schema: { type: integer, minimum: 0 } }
+      responses:
+        "200": { description: Added. }
+        "403": { description: The link only lets people view. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: Not the latest number. }
+  /api/shared/{owner}/{id}/ops:
+    parameters:
+      - { name: owner, in: path, required: true, schema: { type: string } }
+      - { $ref: "#/components/parameters/Id" }
+    get:
+      tags: [log]
+      summary: The changes after a number, for a document shared with the person
+      security: [{ session: [] }]
+      parameters:
+        - { name: after, in: query, required: true, schema: { type: integer, minimum: 0 } }
+      responses:
+        "200": { description: As for the person's own document. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "410": { description: Fetch the file. }
+    post:
+      tags: [log]
+      summary: Add a change, with an edit share
+      security: [{ session: [] }]
+      parameters:
+        - { name: base, in: query, required: true, schema: { type: integer, minimum: 0 } }
+      responses:
+        "200": { description: Added. }
+        "403": { description: The share only lets the person view. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: Not the latest number. }
   /api/docs/{id}/meta:
     get:
       tags: [documents]
@@ -508,6 +623,13 @@ components:
         modified: { type: integer, format: int64, description: Seconds since 1970. }
         etag: { type: string }
         folder: { type: string, description: "The folder it is in; empty for the top." }
+        version: { type: integer, description: "The version of the change log the stored file stands for; 0 when there is none." }
+    LogNumbers:
+      type: object
+      required: [head, version]
+      properties:
+        head: { type: integer, description: The latest change number. }
+        version: { type: integer, description: The version of the stored file. }
     Grant:
       type: object
       required: [owner, doc, with, name, kind, rights, created]

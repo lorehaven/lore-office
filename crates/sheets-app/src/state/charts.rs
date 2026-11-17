@@ -104,8 +104,9 @@ impl SheetState {
             return;
         };
         let axes = self.axes.get_untracked();
-        let left = axes.cols.offset(chart.at.col) + (x - x0);
-        let top = axes.rows.offset(chart.at.row) + (y - y0);
+        let z = self.zoom_factor();
+        let left = axes.cols.offset(chart.at.col) + (x - x0) / z;
+        let top = axes.rows.offset(chart.at.row) + (y - y0) / z;
         let at = CellRef::new(
             axes.rows.index_at(top.max(0.0)),
             axes.cols.index_at(left.max(0.0)),
