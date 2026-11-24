@@ -8,11 +8,15 @@
 #![allow(clippy::module_name_repetitions)]
 
 #[cfg(feature = "server")]
+mod import;
+#[cfg(feature = "server")]
 mod local;
 mod model;
 #[cfg(feature = "server")]
 mod warehouse;
 
+#[cfg(feature = "server")]
+pub use import::WarehouseFiles;
 #[cfg(feature = "server")]
 pub use local::LocalStore;
 pub use model::{

@@ -80,6 +80,10 @@ async fn main() {
             .and_then(|v| v.parse().ok())
             .unwrap_or(256 << 20),
         dev: std::env::var_os("QUENCH_DEV").is_some(),
+        // Only a warehouse-backed cloud knows where warehouse is.
+        warehouse: (std::env::var("CLOUD_STORAGE").as_deref() == Ok("warehouse"))
+            .then(|| std::env::var("WAREHOUSE_URL").unwrap_or_default()),
+        gatehouse: std::env::var("GATEHOUSE_URL").unwrap_or_default(),
     });
     let container = Arc::new(ContainerBuilder::new().build().await.expect("container"));
     let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());

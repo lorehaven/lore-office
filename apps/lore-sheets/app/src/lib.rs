@@ -47,7 +47,11 @@ pub fn app() -> View {
     if cloud.context.share.is_some() {
         cloud.open_share();
     }
-    sheet_view(&state)
+    #[cfg(target_arch = "wasm32")]
+    if let Some(id) = cloud.context.open.clone() {
+        cloud.open_doc(&id);
+    }
+    office_cloud_ui::with_bar(&cloud, sheet_view(&state))
 }
 
 /// Days since 1899-12-30 for a moment given as milliseconds since 1970 UTC and the zone's offset in seconds.

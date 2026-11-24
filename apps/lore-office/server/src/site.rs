@@ -70,6 +70,10 @@ pub struct SiteConfig {
     pub base: String,
     pub max_upload: usize,
     pub dev: bool,
+    /// Where warehouse is (`https://host/warehouse`): what `/open` reads a person's files from. `None`: there is no `/open`.
+    pub warehouse: Option<String>,
+    /// Where gatehouse is, for the links of the bar every page has when someone is signed in.
+    pub gatehouse: String,
 }
 
 const APPS: [&str; 4] = ["docs", "sheets", "notes", "pdf"];
@@ -83,6 +87,8 @@ pub struct Site {
     cloud: CloudApi,
     sso: Option<SsoConfig>,
     base: String,
+    files: Option<office_cloud::WarehouseFiles>,
+    gatehouse: String,
     /// Sessions renewed a moment ago, by the refresh token they came from: a page and its API calls arrive together, and
     /// the realm accepts a refresh token once.
     renewed: tokio::sync::Mutex<Vec<(std::time::Instant, String, Renewed)>>,
@@ -211,6 +217,12 @@ impl Site {
             cloud,
             sso: config.sso,
             base,
+            files: config
+                .warehouse
+                .as_deref()
+                .filter(|w| !w.is_empty())
+                .and_then(|w| office_cloud::WarehouseFiles::new(w).ok()),
+            gatehouse: config.gatehouse.trim_end_matches('/').to_string(),
             renewed: tokio::sync::Mutex::default(),
         }
     }
@@ -263,12 +275,102 @@ impl Site {
             },
             None => None,
         };
+        // A document made by `/open`, to open at once. Its id is only ever one of the person's own: the API checks it.
+        let open = req
+            .uri()
+            .query()
+            .and_then(|q| q.split('&').find_map(|p| p.strip_prefix("doc=")))
+            .filter(|id| {
+                !id.is_empty()
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            })
+            .filter(|_| user.is_some())
+            .map(str::to_string);
         Context {
             api: format!("{}/api", self.base),
             user,
             denied,
             login,
             share,
+            open,
+            gatehouse: self.gatehouse.clone(),
+        }
+    }
+
+    /// `/open?app=docs|sheets&storage=&path=`: copies a file of the person's from warehouse into their cloud here and goes
+    /// to the app with it open. The file is read with the person's own token, so only what they may read comes through.
+    async fn open_from_warehouse(&self, req: &Request) -> Response {
+        use quench_auth::domain::percent::decode;
+        let arg = |key: &str| {
+            req.uri().query().and_then(|q| {
+                q.split('&').find_map(|p| {
+                    let (k, v) = p.split_once('=')?;
+                    (k == key).then(|| decode(v).unwrap_or_default())
+                })
+            })
+        };
+        let (Some(app), Some(storage), Some(path)) = (arg("app"), arg("storage"), arg("path"))
+        else {
+            return Response::text(StatusCode::BAD_REQUEST, "app, storage and path are needed");
+        };
+        if !APPS.contains(&app.as_str()) {
+            return Response::text(StatusCode::BAD_REQUEST, "no such app");
+        }
+        let Some(files) = &self.files else {
+            return Response::text(StatusCode::NOT_FOUND, "there is no warehouse to open from");
+        };
+        let Some(user) = user_of(req, &self.cloud.jwt).await else {
+            // Sign in, and come back to this very address.
+            let back = req.uri().to_string();
+            return if self.sso.is_some() && valid_return(&self.base, &back) {
+                self.go(&format!("{}/ui/login?redirect={back}", self.base))
+            } else {
+                Response::text(StatusCode::UNAUTHORIZED, "sign in first")
+            };
+        };
+        let token = if self.cloud.jwt.auth_enabled {
+            quench_auth::http::domain::cookies::cookie_value(
+                req,
+                &quench_auth::domain::realm::session_cookie_name(),
+            )
+            .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let bytes = match files.read(&token, &storage, &path).await {
+            Ok(b) => b,
+            Err(office_cloud::Error::Denied) => {
+                return Response::text(
+                    StatusCode::FORBIDDEN,
+                    "the warehouse does not let you read that file",
+                );
+            }
+            Err(office_cloud::Error::NotFound) => {
+                return Response::text(StatusCode::NOT_FOUND, "no such file in the warehouse");
+            }
+            Err(e) => {
+                quench_log::error!("open from warehouse: {e}");
+                return Response::text(StatusCode::BAD_GATEWAY, "the warehouse did not answer");
+            }
+        };
+        let name = path.rsplit('/').next().unwrap_or("document");
+        match self
+            .cloud
+            .store
+            .put(&user, None, name, &app, &bytes, None)
+            .await
+        {
+            Ok(meta) => self.go(&format!("{}/{app}?doc={}", self.base, meta.id)),
+            Err(office_cloud::Error::Quota { .. }) => Response::text(
+                StatusCode::INSUFFICIENT_STORAGE,
+                "your lore-office storage is full",
+            ),
+            Err(e) => {
+                quench_log::error!("open from warehouse: {e}");
+                Response::text(StatusCode::BAD_GATEWAY, "the document could not be kept")
+            }
         }
     }
 
@@ -393,6 +495,7 @@ impl Site {
                 found.unwrap_or_else(Response::not_found)
             }
             ["api", ..] => self.cloud.call(req).await,
+            ["open"] => self.open_from_warehouse(&req).await,
             ["ui", "login"] => match &self.sso {
                 Some(sso) => {
                     let mut response =

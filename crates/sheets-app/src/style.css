@@ -18,7 +18,8 @@
 .viewport { position: relative; overflow: auto; min-height: 0; min-width: 0; overscroll-behavior: contain; }
 .sizer { position: relative; }
 .window { position: absolute; left: 0; top: 0; display: grid; will-change: transform; }
-.cell { box-sizing: border-box; display: flex; align-items: center; padding: 0 6px; overflow: hidden; white-space: nowrap; border-right: 1px solid var(--office-grid); border-bottom: 1px solid var(--office-grid); }
+/* The cell lines are darker than the chrome's (--office-grid), so the grid reads on a screen and in a dark theme. */
+.cell { --cell-line: color-mix(in srgb, var(--office-fg) 32%, var(--office-bg)); box-sizing: border-box; display: flex; align-items: center; padding: 0 6px; overflow: hidden; white-space: nowrap; border-right: 1px solid var(--cell-line); border-bottom: 1px solid var(--cell-line); }
 .cell.num { justify-content: flex-end; font-variant-numeric: tabular-nums; }
 .cell.err { color: var(--office-error); }
 .cursor { position: absolute; box-sizing: border-box; border: 2px solid var(--office-accent); outline: none; pointer-events: none; }

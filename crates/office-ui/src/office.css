@@ -215,3 +215,26 @@ a.tool.primary { align-self: flex-start; text-decoration: none; }
 .cloud-side { overflow-x: hidden; }
 .cloud-side .cloud-server { flex-wrap: wrap; }
 .cloud-side .cloud-server input { min-width: 0; width: 100%; flex: 1 1 100%; }
+
+/* The bar of forge's apps, above an app when someone is signed in (see office_cloud_ui::with_bar). */
+.office-frame { display: flex; flex-direction: column; height: 100%; }
+.office-frame-body { flex: 1 1 auto; min-height: 0; position: relative; }
+.office-frame-body > * { height: 100%; }
+.fbar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; box-sizing: border-box; background: var(--office-bg); color: var(--office-fg); border-bottom: 1px solid var(--office-grid); position: relative; z-index: 60; }
+.fbar-nav { display: flex; align-items: center; gap: 2px; }
+.fbar-btn, .fbar-avatar { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--office-radius); color: var(--office-head-fg); text-decoration: none; cursor: pointer; list-style: none; }
+.fbar-btn:hover, .fbar-avatar:hover { background: color-mix(in srgb, var(--office-fg) 8%, transparent); color: var(--office-fg); }
+.fbar-avatar::-webkit-details-marker { display: none; }
+.fbar-avatar { border: 1px solid var(--office-grid); border-radius: 50%; }
+.fbar-brand { font-size: 16px; font-weight: 600; color: var(--office-fg); text-decoration: none; }
+.fbar-spacer { flex: 1 1 auto; }
+.fbar-menu { position: relative; }
+.fbar-drop { position: absolute; right: 0; top: 38px; min-width: 200px; display: flex; flex-direction: column; padding: 4px; background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: var(--office-radius); box-shadow: var(--office-shadow); }
+.fbar-who { padding: 6px 10px; font-size: 12px; color: var(--office-head-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fbar-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 14px; color: var(--office-fg); text-decoration: none; border-radius: var(--office-radius); }
+.fbar-item:hover { background: color-mix(in srgb, var(--office-fg) 8%, transparent); }
+.fbar-ico { display: inline-block; width: 18px; height: 18px; background-color: currentColor; -webkit-mask: var(--ico) center / contain no-repeat; mask: var(--ico) center / contain no-repeat; }
+.fbar-ico-grid { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='7' height='7'/%3E%3Crect x='14' y='3' width='7' height='7'/%3E%3Crect x='14' y='14' width='7' height='7'/%3E%3Crect x='3' y='14' width='7' height='7'/%3E%3C/svg%3E"); }
+.fbar-ico-house { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpath d='M9 22V12h6v10'/%3E%3C/svg%3E"); }
+.fbar-ico-user { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E"); }
+.fbar-ico-logout { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'/%3E%3Cpath d='M16 17l5-5-5-5M21 12H9'/%3E%3C/svg%3E"); }

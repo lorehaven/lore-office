@@ -43,7 +43,11 @@ pub fn app() -> View {
     if cloud.context.share.is_some() {
         cloud.open_share();
     }
-    docs_view(&state)
+    #[cfg(target_arch = "wasm32")]
+    if let Some(id) = cloud.context.open.clone() {
+        cloud.open_doc(&id);
+    }
+    office_cloud_ui::with_bar(&cloud, docs_view(&state))
 }
 
 #[cfg(target_arch = "wasm32")]

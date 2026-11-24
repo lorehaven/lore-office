@@ -106,6 +106,8 @@ fn setup(
         }),
     };
     let context = Context {
+        open: None,
+        gatehouse: String::new(),
         api: "/api".into(),
         user: user.map(str::to_string),
         denied: None,
@@ -294,6 +296,8 @@ fn a_page_opened_from_a_link_loads_it_and_saves_through_it_and_failures_are_said
     // Taken away: the answer says so.
     let down = Cloud::new(
         Context {
+            open: None,
+            gatehouse: String::new(),
             api: "/api".into(),
             ..Context::default()
         },
@@ -315,6 +319,8 @@ fn a_page_opened_from_a_link_loads_it_and_saves_through_it_and_failures_are_said
     assert!(down.status.get_untracked().contains("Someone else changed"));
     let context = Context::from_json(
         &Context {
+            open: None,
+            gatehouse: String::new(),
             api: "/x/api".into(),
             user: Some("é".into()),
             denied: Some("d".into()),
@@ -400,6 +406,8 @@ fn sync(autosave: bool) -> Sync {
         }),
     };
     let context = Context {
+        open: None,
+        gatehouse: String::new(),
         api: "/api".into(),
         user: Some("alice".into()),
         denied: None,
@@ -832,6 +840,8 @@ fn following() -> Following {
     let applied: Rc<RefCell<Vec<String>>> = Rc::default();
     let imported: Rc<RefCell<usize>> = Rc::default();
     let context = Context {
+        open: None,
+        gatehouse: String::new(),
         api: "/api".into(),
         user: Some("alice".into()),
         denied: None,
@@ -1084,4 +1094,51 @@ fn others_in_the_document_are_shown_with_told_apart_names_and_a_change_to_the_do
         && s.1.ends_with("/presence")
         && String::from_utf8_lossy(&s.3).contains(r#""gone":true"#)));
     assert!(f.cloud.others().is_empty());
+}
+
+#[quench_test::test]
+fn the_forge_bar_is_there_with_a_session_and_gatehouse_and_not_without() {
+    let bar_of = |user: Option<&str>, gatehouse: &str| {
+        let r = Rc::new(TestRenderer::new());
+        let root = r.root();
+        let context = Context {
+            api: "/api".into(),
+            user: user.map(str::to_string),
+            login: "/ui/login".into(),
+            gatehouse: gatehouse.into(),
+            ..Context::default()
+        };
+        let transport = Fake {
+            seen: Rc::default(),
+            answer: Rc::new(|_, _| reply(404, &[], "")),
+        };
+        let (_, scope) = create_root(|| {
+            let cloud = Cloud::new(context, Rc::new(transport));
+            mount(
+                &r,
+                &root,
+                office_cloud_ui::with_bar(&cloud, div().attr("id", "body").into_view()),
+            );
+        });
+        (r, scope)
+    };
+    let (on, _keep) = bar_of(Some("ada"), "https://h/gatehouse");
+    assert_eq!(on.find_by_attr("id", "dashboard").len(), 1);
+    assert_eq!(
+        on.find_by_attr("id", "body").len(),
+        1,
+        "the app is still under it"
+    );
+    assert!(
+        bar_of(None, "https://h/gatehouse")
+            .0
+            .find_by_attr("id", "dashboard")
+            .is_empty()
+    );
+    assert!(
+        bar_of(Some("ada"), "")
+            .0
+            .find_by_attr("id", "dashboard")
+            .is_empty()
+    );
 }

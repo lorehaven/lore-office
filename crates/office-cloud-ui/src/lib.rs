@@ -36,6 +36,10 @@ pub struct Context {
     /// Where signing in starts.
     pub login: String,
     pub share: Option<SharedWith>,
+    /// A document of the person's to open at once (the address said `?doc=`): what a file opened from elsewhere is made into.
+    pub open: Option<String>,
+    /// Where gatehouse is (`https://host/gatehouse`), for the bar's dashboard and profile links; `""` when it is not known.
+    pub gatehouse: String,
 }
 
 /// A page opened from a share link.
@@ -58,6 +62,8 @@ impl Context {
             user: s("user"),
             denied: s("denied"),
             login: s("login").unwrap_or_default(),
+            open: s("open"),
+            gatehouse: s("gatehouse").unwrap_or_default(),
             share: v.get("share").and_then(|sh| {
                 Some(SharedWith {
                     token: sh.get("token")?.as_str()?.to_string(),
@@ -79,6 +85,15 @@ impl Context {
         }
         if let Some(d) = &self.denied {
             out.push_str(&format!(",\"denied\":{}", json::to_string(d.as_str())));
+        }
+        if !self.gatehouse.is_empty() {
+            out.push_str(&format!(
+                ",\"gatehouse\":{}",
+                json::to_string(self.gatehouse.as_str())
+            ));
+        }
+        if let Some(id) = &self.open {
+            out.push_str(&format!(",\"open\":{}", json::to_string(id.as_str())));
         }
         if let Some(sh) = &self.share {
             out.push_str(&format!(
@@ -1922,4 +1937,85 @@ pub mod web {
             });
         }
     }
+}
+
+/// `body` under the bar every forge app has when someone is signed in.
+///
+/// The bar has the services dashboard, the suite's home, the name and the account menu (profile at gatehouse, sign out).
+/// With no one signed in (or no gatehouse) it is `body` as it was.
+#[must_use]
+pub fn with_bar(cloud: &Cloud, body: View) -> View {
+    let c = &cloud.context;
+    if c.user.is_none() || c.gatehouse.is_empty() {
+        return body;
+    }
+    let (gatehouse, home) = (c.gatehouse.clone(), cloud.home());
+    let ico = |name: &str| span().class(format!("fbar-ico fbar-ico-{name}"));
+    let bar = element("header")
+        .class("fbar")
+        .attr("role", "banner")
+        .child(
+            div()
+                .class("fbar-nav")
+                .child(
+                    a().attr("id", "dashboard")
+                        .class("fbar-btn")
+                        .attr("href", format!("{gatehouse}/ui/home"))
+                        .attr("title", t("Dashboard"))
+                        .attr("aria-label", t("Dashboard"))
+                        .child(ico("grid")),
+                )
+                .child(
+                    a().attr("id", "home")
+                        .class("fbar-btn")
+                        .attr("href", home.clone())
+                        .attr("title", t("Home"))
+                        .attr("aria-label", t("Home"))
+                        .child(ico("house")),
+                ),
+        )
+        .child(
+            a().attr("id", "title")
+                .class("fbar-brand")
+                .attr("href", home.clone())
+                .text("lore-office"),
+        )
+        .child(div().class("fbar-spacer"))
+        .child(
+            element("details")
+                .class("fbar-menu")
+                .child(
+                    element("summary")
+                        .class("fbar-avatar")
+                        .attr("title", c.user.clone().unwrap_or_default())
+                        .attr("aria-label", t("Account"))
+                        .child(ico("user")),
+                )
+                .child(
+                    div()
+                        .class("fbar-drop")
+                        .child(
+                            span()
+                                .class("fbar-who")
+                                .text(c.user.clone().unwrap_or_default()),
+                        )
+                        .child(
+                            a().class("fbar-item")
+                                .attr("href", format!("{gatehouse}/ui/account"))
+                                .child(ico("user"))
+                                .child(span().text(t("Edit profile"))),
+                        )
+                        .child(
+                            a().class("fbar-item")
+                                .attr("href", format!("{home}ui/logout"))
+                                .child(ico("logout"))
+                                .child(span().text(t("Sign out"))),
+                        ),
+                ),
+        );
+    div()
+        .class("office-frame")
+        .child(bar)
+        .child(div().class("office-frame-body").child(body))
+        .into_view()
 }

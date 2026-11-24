@@ -55,6 +55,8 @@ async fn rig(base: &str, quota: u64) -> Rig {
         base: base.to_string(),
         max_upload: 1 << 20,
         dev: false,
+        warehouse: None,
+        gatehouse: "https://host/gatehouse".to_string(),
     });
     Rig {
         site,
