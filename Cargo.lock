@@ -163,8 +163,10 @@ dependencies = [
 name = "lore-launcher-app"
 version = "0.1.0"
 dependencies = [
+ "office-cloud-ui",
  "office-i18n",
  "office-theme",
+ "office-ui",
  "quench-serde",
  "quench-test",
  "quench-ui",

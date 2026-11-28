@@ -8,6 +8,7 @@ Behind gatehouse, the suite keeps each person's documents on the server and shar
 
 - **Sign in** with gatehouse (authorization code + PKCE, through `quench-auth`).
 - **Per-user storage**: each person gets their own warehouse storage (dynamic, made on the first save, **10 GiB** by default: `USER_QUOTA_BYTES`). Without warehouse (`CLOUD_STORAGE=local`) a directory per person under `DATA_DIR` does the same.
+- **Top bar and forge**: the same bar as the forge services (theme and language shared with them by cookies). Dashboard, account menu and everything about the cloud appear only when `GATEHOUSE_URL` is set.
 - **Cloud sync**: File → *Cloud…* lists, opens, deletes; *Save to the cloud* saves over the open document. When signed in, Ctrl+S saves to the cloud; docs and sheets send their changes by themselves, and every page keeps a question open to the service that is answered the moment anyone arrives, moves or saves (strip of who is here, cell ranges in sheets, a bar by the paragraph in docs; the 2 s asking is a slow safety net) whether someone else saved (sheets send cell changes and docs paragraph changes, a few hundred bytes, and apply others' in place), so an update arrives without reloading (with changes of your own, a banner lets you choose). A save says which version it began from (`If-Match` etag), so two people saving one document get a conflict message instead of a silent overwrite.
 - **Folders and people**: the Cloud panel (70% of the window) browses folders as cards or a list, moves documents between them, and *Share…* can also share a document with a named person: it stays in your cloud and shows under *Shared with me* in theirs.
 - **Share links** (docs, sheets, notes, pdf): *Share…* makes a 256-bit link with **view** or **edit** rights, optionally ending after N days. Anyone with the link, signed in or not, opens the document at `/<app>?share=<token>`; edit links save back to the owner's copy. The owner lists and withdraws links.
@@ -31,7 +32,7 @@ The book is in `docs/` (guides, apps, the service and its API, libraries), built
 ## Run it
 
 ```sh
-foreman                      # builds web/*.wasm and the server, serves http://localhost:3000/lore-office/
+foreman                      # gatehouse and warehouse in Docker, then lore-office: http://localhost:8080/lore-office/
 scripts/check.sh             # fmt, clippy, tests, cargo deny, cargo machete
 conveyor run lorehaven/lore-office --stage release-image --wait   # the image, by hand
 ```

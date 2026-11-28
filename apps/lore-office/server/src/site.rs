@@ -92,7 +92,13 @@ pub struct Site {
     /// Sessions renewed a moment ago, by the refresh token they came from: a page and its API calls arrive together, and
     /// the realm accepts a refresh token once.
     renewed: tokio::sync::Mutex<Vec<(std::time::Instant, String, Renewed)>>,
+    /// People a renewed session did not let in, and when that was found.
+    refused: tokio::sync::Mutex<Vec<(std::time::Instant, String)>>,
 }
+
+/// How long the session of someone without access is not renewed again. A grant given meanwhile takes this long to show
+/// (signing out and in shows it at once).
+const NO_ACCESS: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// A fresh pair of tokens and the `set-cookie` values that keep them.
 #[derive(Clone)]
@@ -116,6 +122,27 @@ fn loader(icon: &str) -> String {
         office_theme::SCRIPT,
         quench_ui_web::QUENCH_JS
     )
+}
+
+/// Two JSON objects as one: the launcher's page carries both its links and the page's context.
+fn with_context(links: &str, context: &str) -> String {
+    match (links.strip_suffix('}'), context.strip_prefix('{')) {
+        (Some(l), Some(c)) if c != "}" => format!("{l},{c}"),
+        _ => links.to_string(),
+    }
+}
+
+/// The start page, with the same top bar as the apps: its page carries both the links to them and the page's context.
+fn launcher_page(ui: Ui, style: String, links: lore_launcher_app::Links) -> UiApp {
+    UiApp::new(ui).page("/", move |req| {
+        let context = context_of(req);
+        // As for the apps: set and used with no `.await` between.
+        office_cloud_ui::set_server_context(context.clone());
+        let _ = office_cloud_ui::setup();
+        Page::new("lore-office", lore_launcher_app::launcher(&links))
+            .stylesheet(&style)
+            .state(with_context(&links.to_json(), &context.to_json()))
+    })
 }
 
 fn context_of(req: &Request) -> Context {
@@ -147,11 +174,7 @@ impl Site {
             &config.modules.launcher,
             theme(lore_launcher_app::STYLE),
         );
-        let launcher = UiApp::new(ui).page("/", move |_| {
-            Page::new("lore-office", lore_launcher_app::launcher(&links))
-                .stylesheet(&style)
-                .state(links.to_json())
-        });
+        let launcher = launcher_page(ui, style, links);
         let mut apps = Vec::new();
         let table: [(
             &str,
@@ -224,6 +247,7 @@ impl Site {
                 .and_then(|w| office_cloud::WarehouseFiles::new(w).ok()),
             gatehouse: config.gatehouse.trim_end_matches('/').to_string(),
             renewed: tokio::sync::Mutex::default(),
+            refused: tokio::sync::Mutex::default(),
         }
     }
 
@@ -380,18 +404,25 @@ impl Site {
 }
 
 impl Site {
-    /// The session of a person whose access token ran out but whose refresh token is still good, renewed as the forge
-    /// services do: the request goes on with the new access token, and the response sets the new cookies, so the person
-    /// is not sent to sign in again while the session at the realm lives.
+    /// A session this service cannot use, renewed from the refresh token as the forge services do.
+    ///
+    /// That is an access token that ran out, or one made for another service (signing in there gives a token good for that
+    /// service only). The request goes on with the new access token and the response sets the new cookies, so a person who
+    /// is signed in at the realm is signed in here too, without being sent to sign in. Someone the renewed token does not
+    /// let in either has no access: their session is then left alone for [`NO_ACCESS`].
     async fn renew(&self, req: Request) -> (Request, Vec<String>) {
         use quench_auth::domain::{realm, sso_client};
         use quench_auth::http::domain::cookies::cookie_value;
         let jwt = &self.cloud.jwt;
-        if !jwt.auth_enabled
-            || user_of(&req, jwt).await.is_some()
-            || denied_user(&req, jwt).await.is_some()
-        {
+        if !jwt.auth_enabled || user_of(&req, jwt).await.is_some() {
             return (req, Vec::new());
+        }
+        if let Some(user) = denied_user(&req, jwt).await {
+            let mut refused = self.refused.lock().await;
+            refused.retain(|(at, _)| at.elapsed() < NO_ACCESS);
+            if refused.iter().any(|(_, u)| *u == user) {
+                return (req, Vec::new());
+            }
         }
         let Some(refresh) = cookie_value(&req, &realm::refresh_cookie_name()) else {
             return (req, Vec::new());
@@ -416,6 +447,14 @@ impl Site {
                 r
             }
         };
+        if let Ok(claims) = jwt.decode_claims(&renewed.access).await
+            && !claims.allows(&jwt.service_name)
+        {
+            self.refused
+                .lock()
+                .await
+                .push((std::time::Instant::now(), claims.sub));
+        }
         // The request carries the new access token in place of the old one.
         let (session, refresh_name) = (realm::session_cookie_name(), realm::refresh_cookie_name());
         let kept: Vec<String> = req
@@ -541,7 +580,8 @@ impl Site {
                 )
             }
             [] => {
-                let r = Self::rewritten(&mut req, "/", None);
+                let context = self.context(&req, "").await;
+                let r = Self::rewritten(&mut req, "/", Some(&context));
                 self.launcher.call(r).await
             }
             [app] if APPS.contains(app) => {

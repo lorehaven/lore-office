@@ -85,7 +85,7 @@ pub fn theme_menu(labels: &ThemeLabels) -> Element {
             element("summary")
                 .attr("title", labels.toggle.clone())
                 .attr("aria-label", labels.toggle.clone())
-                .text("\u{25D0}"),
+                .child(span().class("theme-icon")),
         )
         .child(
             div()

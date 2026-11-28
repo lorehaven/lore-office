@@ -9,7 +9,7 @@ Running the service, and what to look at when it misbehaves.
 
 ## Locally
 
-`foreman` starts it on `http://localhost:3000/lore-office/` with the local store under `.run/data` (see [Running locally](../../guides/running-locally.md)).
+`foreman` starts it with a gatehouse and a warehouse in Docker, on `http://localhost:8080/lore-office/` (see [Running locally](../../guides/running-locally.md)).
 
 ## In the cluster
 

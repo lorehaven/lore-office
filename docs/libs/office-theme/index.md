@@ -24,4 +24,4 @@ The variables follow the design tokens of the forge estate: Untitled UI grays, f
 
 ## Storage
 
-The script keeps the choices in the browser's storage under `q:theme`, `q:palette` and `q:paper`, and sets `html[data-theme]`, `html[data-palette]` and `html[data-paper]`.
+The script keeps the choices in the browser's storage under `q:theme`, `q:palette` and `q:paper`, and sets `html[data-theme]`, `html[data-palette]` and `html[data-paper]`. It takes up the forge cookies `qtheme`, `fui_palette` and `qlocale` when they are set and writes them when a person chooses; it also closes the bar's menus on a click elsewhere or Escape, and shows the account picture once it has loaded.

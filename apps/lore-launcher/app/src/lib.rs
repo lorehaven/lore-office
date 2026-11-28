@@ -58,30 +58,13 @@ impl Links {
     }
 }
 
-/// An SVG as the address of an image (`data:` addresses are allowed on the page; the characters that would end it are escaped).
-fn svg_address(svg: &str) -> String {
-    let mut out = String::from("data:image/svg+xml;utf8,");
-    for c in svg.trim().chars() {
-        match c {
-            '#' => out.push_str("%23"),
-            '<' => out.push_str("%3C"),
-            '>' => out.push_str("%3E"),
-            '"' => out.push('\''),
-            '%' => out.push_str("%25"),
-            '\n' | '\r' => {}
-            c => out.push(c),
-        }
-    }
-    out
-}
-
 fn tile(name: &str, what: &str, icon: &str, href: &str) -> Element {
     a().class("tile")
         .attr("href", href.to_string())
         .child(
             span().class("tile-glyph").child(
                 img()
-                    .attr("src", svg_address(icon))
+                    .attr("src", office_ui::svg_address(icon))
                     .attr("alt", "")
                     .attr("width", "56")
                     .attr("height", "56"),
@@ -131,7 +114,7 @@ fn page(links: &Links, language: &Signal<String>) -> View {
     });
     div()
         .class("launcher")
-        .child(div().class("bar").child(span().class("brand").text("lore-office")).child(div().class("bar-end").child(picker).child(theme)))
+        .child(office_ui::topbar("lore-office", div().child(picker).child(theme)))
         .child(
             main()
                 .class("home")
@@ -165,6 +148,8 @@ pub fn app() -> View {
         i18n::reset();
         i18n::use_language(&code);
     }
+    // The page's context (who is signed in, where gatehouse is) gives the top bar its dashboard and account menu.
+    let _ = office_cloud_ui::setup();
     launcher(&links)
 }
 

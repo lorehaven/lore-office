@@ -36,7 +36,7 @@ The cloud screens go through a `Transport` (the browser's `fetch` in the page, a
 
 ## Standalone apps
 
-Each `apps/lore-*/server` serves one app alone, without the cloud (the page context is empty, so the Cloud button only offers a server to connect to). They are built with `quench build`; with the Cargo feature `embed` the module `dist/app.wasm` is compiled into the server. `lore-office-server` has the same feature and embeds the five modules of the standalone apps; without it, it reads `WASM_DIR` at start.
+Each `apps/lore-*/server` serves one app alone, without the cloud (the page context is empty, so there is no cloud button and no account menu). They are built with `quench build`; with the Cargo feature `embed` the module `dist/app.wasm` is compiled into the server. `lore-office-server` has the same feature and embeds the five modules of the standalone apps; without it, it reads `WASM_DIR` at start.
 
 ## Look
 

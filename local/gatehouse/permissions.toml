@@ -1,0 +1,32 @@
+# The permission catalog of the local gatehouse (see foreman.toml): only the services that run here.
+
+[services.warehouse]
+label = "Warehouse"
+home = true
+description = "Registries for crates, images and files."
+actions = ["read", "write"]
+resource_types = ["storage"]
+
+[services.lore-office]
+label = "Lore Office"
+home = true
+description = "Documents, spreadsheets, notes and PDFs, kept in the cloud and shared by link."
+actions = ["read", "write"]
+
+[services.gatehouse]
+label = "Gatehouse"
+actions = ["read-users", "create-user", "edit-user", "delete-user", "manage-permissions", "manage-signing-keys", "notify"]
+
+[templates.viewer]
+warehouse = ["read"]
+lore-office = ["read", "write"]
+
+[templates.editor]
+warehouse = ["read", "write"]
+lore-office = ["read", "write"]
+
+[templates.user-manager]
+gatehouse = ["read-users", "create-user", "edit-user", "delete-user", "manage-permissions"]
+
+[registration]
+default_template = "viewer"

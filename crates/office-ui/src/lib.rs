@@ -10,7 +10,11 @@ use std::rc::Rc;
 /// Theme variables, base page style, themed scrollbars, ribbon and menu rules.
 pub const STYLE: &str = include_str!("office.css");
 
+/// A part of the top bar the page's host draws (the services dashboard, the account menu).
+pub type Slot = Rc<dyn Fn() -> View>;
+
 thread_local! {
+    static FRAME: std::cell::RefCell<(Option<Slot>, Option<Slot>)> = std::cell::RefCell::default();
     static HOME: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
     static TRANSLATE: std::cell::Cell<fn(&str) -> String> = std::cell::Cell::new(str::to_string);
 }
@@ -24,6 +28,83 @@ pub fn set_translator(f: fn(&str) -> String) {
 /// Where the suite's home page is, so every ribbon links to it (`None`: this app stands alone and has no home).
 pub fn set_home(href: Option<String>) {
     HOME.with(|h| *h.borrow_mut() = href);
+}
+
+/// What the top bar has when the suite is part of forge.
+///
+/// `lead` goes before the home button (the services dashboard) and `end` after everything else (the account menu). `None`
+/// for a part the page does not have; a suite on its own has neither.
+pub fn set_frame(lead: Option<Slot>, end: Option<Slot>) {
+    FRAME.with(|f| *f.borrow_mut() = (lead, end));
+}
+
+/// An SVG as the address of an image (`data:` addresses are allowed on the page; the characters that would end it are
+/// escaped).
+#[must_use]
+pub fn svg_address(svg: &str) -> String {
+    let mut out = String::from("data:image/svg+xml;utf8,");
+    for c in svg.trim().chars() {
+        match c {
+            '#' => out.push_str("%23"),
+            '<' => out.push_str("%3C"),
+            '>' => out.push_str("%3E"),
+            '"' => out.push('\''),
+            '%' => out.push_str("%25"),
+            '\n' | '\r' => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// The picture of an app, by the name the bar shows.
+fn app_icon(app: &str) -> &'static str {
+    match app {
+        "lore-docs" => include_str!("../../../apps/lore-docs/icon.svg"),
+        "lore-sheets" => include_str!("../../../apps/lore-sheets/icon.svg"),
+        "lore-notes" => include_str!("../../../apps/lore-notes/icon.svg"),
+        "lore-pdf" => include_str!("../../../apps/lore-pdf/icon.svg"),
+        _ => include_str!("../../../apps/lore-launcher/icon.svg"),
+    }
+}
+
+/// The top bar, the same as the forge services have.
+///
+/// It holds the services dashboard and the home button, the app's picture and name, then `actions` (cloud, language, theme)
+/// and the account menu. The dashboard and the account are the host's ([`set_frame`]); the home button is there when there
+/// is a home ([`set_home`]).
+#[must_use]
+pub fn topbar(app: &'static str, actions: Element) -> Element {
+    let (lead, end) = FRAME.with(|f| f.borrow().clone());
+    let brand = HOME
+        .with(|h| h.borrow().clone())
+        .map_or_else(span, |href| a().attr("href", href))
+        .attr("id", "title")
+        .class("fbar-brand")
+        .child(
+            img()
+                .class("fbar-mark")
+                .attr("src", svg_address(app_icon(app)))
+                .attr("alt", ""),
+        )
+        .child(span().class("fbar-name").text(app));
+    element("header")
+        .class("fbar")
+        .attr("role", "banner")
+        .child(
+            div()
+                .class("fbar-nav")
+                .child(lead.map_or(View::Empty, |slot| slot()))
+                .child(home_link()),
+        )
+        .child(brand)
+        .child(div().class("fbar-spacer"))
+        .child(
+            div()
+                .class("fbar-actions")
+                .child(actions.class("fbar-tools"))
+                .child(end.map_or(View::Empty, |slot| slot())),
+        )
 }
 
 /// A label in the language in use.
@@ -86,15 +167,16 @@ pub fn tool(label: &str, tip: &str, action: impl Fn() + 'static) -> Element {
         .on_click(action)
 }
 
-/// The link to the suite's home page, left of the app name; nothing when there is no home.
+/// The button to the suite's home page, left of the app name; nothing when there is no home.
 fn home_link() -> View {
     HOME.with(|h| h.borrow().clone())
         .map_or(View::Empty, |href| {
-            a().class("home-link")
+            a().attr("id", "home")
+                .class("fbar-btn")
                 .attr("href", href)
                 .attr("title", t("Home"))
                 .attr("aria-label", t("Home"))
-                .child(span().class("icon icon-home"))
+                .child(span().class("fbar-ico fbar-ico-house"))
                 .into_view()
         })
 }
@@ -134,10 +216,10 @@ pub fn rename_to(name: &Signal<String>, typed: &str) {
     name.set(new);
 }
 
-/// The ribbon, in two lines.
+/// The top of an app: the bar ([`topbar`], with `extras` in it) and the ribbon's two lines.
 ///
-/// The top line holds the app name, `lead` (the File menu), one tab for each of `tabs`, then the document name and the last
-/// thing that happened. The line under it holds the groups of tools of the chosen tab.
+/// The first line of the ribbon holds `lead` (the File menu), one tab for each of `tabs`, then the document name and the
+/// last thing that happened. The line under it holds the groups of tools of the chosen tab.
 ///
 /// Every tab's groups stay in the tree (the others are only hidden), so the state of a tool is never lost on a switch.
 #[must_use]
@@ -174,8 +256,6 @@ pub fn ribbon_named(
         .class("ribbon-tabs")
         .attr("role", "navigation")
         .attr("aria-label", t(label))
-        .child(home_link())
-        .child(span().class("app-name").text(app))
         .child(div().class("ribbon-lead").child(lead));
     let mut panes = div().class("panes");
     for (i, (name, groups)) in tabs.into_iter().enumerate() {
@@ -228,9 +308,12 @@ pub fn ribbon_named(
                 .attr("role", "status")
                 .attr("aria-live", "polite")
                 .text_fn(move || status.get()),
-        )
-        .child(div().class("ribbon-extras").child(extras));
-    div().class("ribbon").child(bar).child(panes)
+        );
+    div()
+        .class("ribbon")
+        .child(topbar(app, extras))
+        .child(bar)
+        .child(panes)
 }
 
 /// What a menu offers.

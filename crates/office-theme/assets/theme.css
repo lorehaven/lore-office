@@ -13,6 +13,7 @@
   --office-radius-lg: 10px;
 
   /* light: surface white, desk gray-50, lines gray-200 */
+  --office-bar-bg: #f9fafb;
   --office-bg: #ffffff;
   --office-fg: #101828;
   --office-grid: #eaecf0;
@@ -29,6 +30,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
+    --office-bar-bg: #0d0e10;
     --office-bg: #141517;
     --office-fg: #f4f4f5;
     --office-grid: #232528;
@@ -45,6 +47,7 @@
 }
 
 :root[data-theme="dark"] {
+  --office-bar-bg: #0d0e10;
   --office-bg: #141517;
   --office-fg: #f4f4f5;
   --office-grid: #232528;
@@ -68,6 +71,7 @@
 :root[data-palette="orange"] { --pal-light: #ec4a0a; --pal-dark: #fd853a; }
 
 /* The menu that picks them. */
+.theme-icon { display: inline-block; width: 18px; height: 18px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A3.7 3.7 0 0 0 21 10.7C21 6.4 16.9 3 12 3z'/%3E%3Ccircle cx='7.5' cy='11' r='.6'/%3E%3Ccircle cx='10' cy='7' r='.6'/%3E%3Ccircle cx='14.5' cy='7' r='.6'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.3A3.7 3.7 0 0 0 21 10.7C21 6.4 16.9 3 12 3z'/%3E%3Ccircle cx='7.5' cy='11' r='.6'/%3E%3Ccircle cx='10' cy='7' r='.6'/%3E%3Ccircle cx='14.5' cy='7' r='.6'/%3E%3C/svg%3E") center / contain no-repeat; }
 .theme-menu { position: relative; }
 .theme-menu > summary { list-style: none; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 4px; cursor: pointer; color: var(--office-head-fg); user-select: none; }
 .theme-menu > summary::-webkit-details-marker { display: none; }

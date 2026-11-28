@@ -42,7 +42,7 @@ pub fn app() -> View {
     if let Some(id) = cloud.context.open.clone() {
         cloud.open_doc(&id);
     }
-    office_cloud_ui::with_bar(&cloud, pdf_view(&state))
+    pdf_view(&state)
 }
 
 quench_ui_web::app!(app);

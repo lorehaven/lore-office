@@ -443,7 +443,7 @@ fn a_picture_is_an_image_paragraph_that_scales_prints_and_takes_no_typing() {
     s.state.insert_picture(&png_file(40, 20)).unwrap();
     assert_eq!(s.state.doc().paras().len(), 3);
     assert_eq!(s.state.selection.get_untracked().focus.para, 1);
-    let shown = s.r.find_by_tag("img");
+    let shown = pictures(&s.r);
     assert_eq!(shown.len(), 1);
     let src = s.r.attr(shown[0], "src").unwrap();
     assert!(src.starts_with("data:image/png;base64,"), "{src}");
@@ -453,12 +453,12 @@ fn a_picture_is_an_image_paragraph_that_scales_prints_and_takes_no_typing() {
     assert_eq!(s.state.doc().plain(), "above\n\n");
     s.state.scale_picture(2.0);
     assert_eq!(
-        s.r.style_of(s.r.find_by_tag("img")[0], "width").as_deref(),
+        s.r.style_of(pictures(&s.r)[0], "width").as_deref(),
         Some("80px")
     );
     s.state.undo();
     assert_eq!(
-        s.r.style_of(s.r.find_by_tag("img")[0], "width").as_deref(),
+        s.r.style_of(pictures(&s.r)[0], "width").as_deref(),
         Some("40px")
     );
     // Not an image: the picture is refused and the document is as it was.
@@ -466,7 +466,7 @@ fn a_picture_is_an_image_paragraph_that_scales_prints_and_takes_no_typing() {
     assert_eq!(s.state.doc().paras().len(), 3);
     // The pages view draws it too, and Word's file keeps it.
     s.state.pages_view.set(true);
-    assert_eq!(s.r.find_by_tag("img").len(), 1);
+    assert_eq!(pictures(&s.r).len(), 1);
     let docx = s.state.docx_bytes().unwrap();
     assert!(
         docs_docx::read(&docx).unwrap().doc.paras()[1]
@@ -752,4 +752,12 @@ fn what_a_change_cannot_carry_sends_the_whole_file() {
         a.state.apply_remote(br#"{"at":0,"del":0}"#).is_err(),
         "a change that cannot be read"
     );
+}
+
+/// The pictures of the document on screen (not the app's own, in the top bar).
+fn pictures(r: &TestRenderer) -> Vec<quench_ui::test_renderer::NodeId> {
+    r.find_by_tag("img")
+        .into_iter()
+        .filter(|n| r.attr(*n, "class").as_deref() != Some("fbar-mark"))
+        .collect()
 }

@@ -19,7 +19,7 @@ cloud.bind(office_cloud_ui::Binding {
 });
 ```
 
-`setup()` reads the page state in the browser (`quench_ui_web::initial_state()`) and, on the server, the context given by `set_server_context`. It also tells `office-ui` where the suite's home is, so every ribbon shows the home link.
+`setup()` reads the page state in the browser (`quench_ui_web::initial_state()`) and, on the server, the context given by `set_server_context`. It also tells `office-ui` where the suite's home is, and in forge (`Cloud::integrated`: a cloud and a gatehouse address) gives the top bar its dashboard button and account menu (`frame`). Outside forge `cloud_button()` and `menu_items()` give nothing and `saves_to_cloud()` is false.
 
 ## Public items
 

@@ -1,23 +1,101 @@
-# The local estate for lore-office.
+# The local estate for lore-office: the service itself, built from this checkout, as part of a forge of its own in
+# Docker (gatehouse for sign-in, warehouse for the documents, with the Postgres and Redis they need).
 #
-#   foreman                  build the pages' modules and the server, start it
-#   foreman stop             stop it
+#   foreman                  start the containers, install the schemas, start gatehouse and warehouse, build and start lore-office
+#   foreman stop             stop lore-office (the containers keep running)
+#   foreman run forge-down   stop gatehouse and warehouse
+#   foreman stop all         stop lore-office, Postgres, Redis and the proxy
 #   foreman status           what is up, and on which port
-#   foreman logs lore-office follow its log
+#   foreman logs lore-office follow its log; `docker logs -f lore-office-gatehouse` (or -warehouse) for the others
 #   foreman run web          rebuild the pages' modules by hand
 #
-# Without gatehouse (the default here) everyone is one local person and the documents are kept under .run/data. To try
-# signing in, start the forge estate (`foreman` in forge) and set SERVICE_AUTH_ENABLED=true, GATEHOUSE_URL,
-# GATEHOUSE_CLIENT_ID and GATEHOUSE_CLIENT_SECRET below (the client is `lore-office` in homecloud's gatehouse overlay).
+# Then open http://localhost:8080/lore-office/ and sign in with the account below. The gatehouse, warehouse and foundry
+# images are released ones; to use others, set GATEHOUSE_IMAGE, WAREHOUSE_IMAGE or FOUNDRY_IMAGE in local/.env.
+# The data is in the Docker volumes lore-office-postgres and lore-office-warehouse: remove both to start over.
 
 [project]
 name = "lore-office"
 description = "local development estate"
 run_dir = ".run"
 
+# Values for this machine only; nothing here is used anywhere else.
+[vars]
+public_url = "http://localhost:8080"
+database_url = "postgres://postgres:postgres@127.0.0.1:55432/postgres"
+redis_url = "redis://127.0.0.1:56379"
+admin_user = "admin"
+admin_password = "password"
+key_encryption_key = "lore-office-local-dev-key-encryption-key"
+secret_warehouse = "lore-office-local-dev-secret-warehouse"
+# Signs warehouse's Docker registry tokens; the registry is off here, the service asks for it anyway.
+docker_token_secret = "lore-office-local-dev-docker-token-secret"
+secret_lore_office = "lore-office-local-dev-secret-lore-office"
+secret_lore_office_warehouse = "lore-office-local-dev-secret-lore-office-warehouse"
+gatehouse_image = { env_file = "local/.env", key = "GATEHOUSE_IMAGE", default = "ennor.ddns.net/forge/gatehouse/gatehouse:0.4.29" }
+warehouse_image = { env_file = "local/.env", key = "WAREHOUSE_IMAGE", default = "ennor.ddns.net/forge/warehouse/warehouse:0.8.34" }
+foundry_image = { env_file = "local/.env", key = "FOUNDRY_IMAGE", default = "ennor.ddns.net/forge/foundry/foundry:0.2.47" }
+
 [build]
 command = ["cargo", "build", "-q", "--package", "${package}"]
 binary = "target/debug/${package}"
+
+[[containers]]
+name = "postgres"
+container_name = "lore-office-postgres"
+image = "pgvector/pgvector:pg18"
+ports = ["127.0.0.1:55432:5432"]
+env = { POSTGRES_USER = "postgres", POSTGRES_PASSWORD = "postgres", POSTGRES_DB = "postgres" }
+args = ["-v", "lore-office-postgres:/var/lib/postgresql"]
+# Over TCP: while a new database is being made it answers only on its socket.
+ready = ["pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
+ready_timeout_secs = 60
+address = "localhost:55432"
+
+[[containers]]
+name = "redis"
+container_name = "lore-office-redis"
+image = "redis:7-alpine"
+ports = ["127.0.0.1:56379:6379"]
+ready = ["redis-cli", "ping"]
+ready_timeout_secs = 15
+address = "localhost:56379"
+
+[[containers]]
+name = "proxy"
+container_name = "lore-office-proxy"
+image = "nginx:1.27-alpine"
+args = ["--network", "host", "-v", "${project_root}/local/nginx.conf:/etc/nginx/conf.d/default.conf:ro"]
+address = "localhost:8080"
+
+# Foundry, then gatehouse and warehouse. Tasks run in the order of their names, before the services.
+[tasks.forge]
+role = "migrate"
+description = "starting gatehouse and warehouse"
+containers = ["postgres", "redis", "proxy"]
+command = ["bash", "local/forge.sh", "up"]
+done = "gatehouse and warehouse are up"
+
+[tasks.forge.env]
+PUBLIC_URL = "${public_url}"
+DATABASE_URL = "${database_url}"
+REDIS_URL = "${redis_url}"
+RUST_LOG = "info"
+SERVICE_REALM = "${public_url}/token"
+SERVICE_USERNAME = "${admin_user}"
+SERVICE_PASSWORD = "${admin_password}"
+GATEHOUSE_KEY_ENCRYPTION_KEY = "${key_encryption_key}"
+CLIENT_SECRET_WAREHOUSE = "${secret_warehouse}"
+CLIENT_SECRET_LORE_OFFICE = "${secret_lore_office}"
+CLIENT_SECRET_LORE_OFFICE_WAREHOUSE = "${secret_lore_office_warehouse}"
+GATEHOUSE_IMAGE = "${gatehouse_image}"
+WAREHOUSE_IMAGE = "${warehouse_image}"
+FOUNDRY_IMAGE = "${foundry_image}"
+DOCKER_TOKEN_SECRET = "${docker_token_secret}"
+
+[tasks.forge-down]
+description = "stopping gatehouse and warehouse"
+command = ["bash", "local/forge.sh", "down"]
+done = "gatehouse and warehouse are stopped"
 
 # The browser modules of the five pages, built the way the image builds them; runs before every start.
 [tasks.web]
@@ -46,11 +124,25 @@ HOST = "127.0.0.1"
 PORT = "3000"
 BASE_PATH = "/lore-office"
 WASM_DIR = "${project_root}/web"
-CLOUD_STORAGE = "local"
-DATA_DIR = "${project_root}/.run/data"
+SERVICE_NAME = "lore-office"
+SERVICE_REALM = "${public_url}/token"
+SERVICE_AUTH_ENABLED = "true"
+GATEHOUSE_URL = "${public_url}/gatehouse"
+GATEHOUSE_CLIENT_ID = "lore-office"
+GATEHOUSE_CLIENT_SECRET = "${secret_lore_office}"
+CLOUD_STORAGE = "warehouse"
+WAREHOUSE_URL = "${public_url}/warehouse"
+WAREHOUSE_CLIENT_ID = "lore-office-warehouse"
+WAREHOUSE_CLIENT_SECRET = "${secret_lore_office_warehouse}"
 
 [[notes]]
 tone = "ok"
 label = "ready"
-message = "http://localhost:3000/lore-office/"
+message = "${public_url}/lore-office/"
+when_selected = "lore-office"
+
+[[notes]]
+tone = "info"
+label = "sign in"
+message = "${admin_user} / ${admin_password}"
 when_selected = "lore-office"

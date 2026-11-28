@@ -474,7 +474,7 @@ fn math_in_a_note_is_a_picture_with_its_tex_as_the_alternative_text() {
         &Event::Input("Inline $x^2$ and\n\n$$\\frac{a}{b}$$\n\nand $\\broken{$.".into()),
     );
     let pics = s.with_class("img", "math");
-    assert_eq!(pics.len(), 1, "{:?}", s.r.find_by_tag("img").len());
+    assert_eq!(pics.len(), 1, "{:?}", pictures(&s.r).len());
     assert_eq!(s.r.attr(pics[0], "alt").as_deref(), Some("x^2"));
     assert!(
         s.r.attr(pics[0], "src")
@@ -482,7 +482,7 @@ fn math_in_a_note_is_a_picture_with_its_tex_as_the_alternative_text() {
             .starts_with("data:image/svg+xml")
     );
     assert_eq!(
-        s.r.find_by_tag("img").len(),
+        pictures(&s.r).len(),
         2,
         "the inline formula and the display one"
     );
@@ -560,3 +560,11 @@ fn exported_web_pages_carry_typeset_math_as_svg_and_leave_unreadable_math_as_tex
 }
 
 quench_test::main!();
+
+/// The pictures of the document on screen (not the app's own, in the top bar).
+fn pictures(r: &TestRenderer) -> Vec<quench_ui::test_renderer::NodeId> {
+    r.find_by_tag("img")
+        .into_iter()
+        .filter(|n| r.attr(*n, "class").as_deref() != Some("fbar-mark"))
+        .collect()
+}

@@ -184,9 +184,9 @@ fn zoom_steps_stay_inside_their_range_and_the_keys_move_pages() {
 #[quench_test::test]
 fn a_page_is_shown_as_it_is_drawn_at_the_zoom_or_as_its_text() {
     let s = open_drawn();
-    assert!(s.r.find_by_tag("img").is_empty(), "nothing is open yet");
+    assert!(pictures(&s.r).is_empty(), "nothing is open yet");
     s.state.load_bytes("t.pdf", &sample()).unwrap();
-    let shown = s.r.find_by_tag("img");
+    let shown = pictures(&s.r);
     assert_eq!(shown.len(), 1);
     let src = s.r.attr(shown[0], "src").unwrap();
     assert!(
@@ -203,7 +203,7 @@ fn a_page_is_shown_as_it_is_drawn_at_the_zoom_or_as_its_text() {
     assert_eq!(s.r.style_of(shown[0], "width").as_deref(), Some("793px"));
     s.state.zoom_by(1);
     assert_eq!(
-        s.r.style_of(s.r.find_by_tag("img")[0], "width").as_deref(),
+        s.r.style_of(pictures(&s.r)[0], "width").as_deref(),
         Some("912px")
     );
     // The text lies over the picture, where the file puts it; a search marks the runs that hold it.
@@ -217,9 +217,9 @@ fn a_page_is_shown_as_it_is_drawn_at_the_zoom_or_as_its_text() {
     assert!(s.r.find_by_attr("class", "run hit current").is_empty());
     // Another page is another picture; the text view has the text and no picture.
     s.state.go_to(1);
-    assert_ne!(s.r.attr(s.r.find_by_tag("img")[0], "src").unwrap(), src);
+    assert_ne!(s.r.attr(pictures(&s.r)[0], "src").unwrap(), src);
     s.state.as_picture.set(false);
-    assert!(s.r.find_by_tag("img").is_empty());
+    assert!(pictures(&s.r).is_empty());
     assert!(!s.r.find_by_tag("pre").is_empty());
 }
 
@@ -374,7 +374,7 @@ quench_test::main!();
 fn dark_pages_turn_the_colours_of_the_drawn_page() {
     let s = open_drawn();
     s.state.load_bytes("t.pdf", &sample()).unwrap();
-    let img = |s: &Screen| s.r.find_by_tag("img")[0];
+    let img = |s: &Screen| pictures(&s.r)[0];
     assert!(!s.r.attr(img(&s), "class").unwrap().contains("dark"));
     s.state.dark_pages.set(true);
     assert!(s.r.attr(img(&s), "class").unwrap().contains("dark"));
@@ -419,4 +419,12 @@ fn words_typed_after_a_line_are_put_in_the_file_in_the_embedded_font_and_read_ba
         }),
     );
     assert!(s.r.find_by_attr("class", "typebox").is_empty());
+}
+
+/// The pictures of the document on screen (not the app's own, in the top bar).
+fn pictures(r: &TestRenderer) -> Vec<quench_ui::test_renderer::NodeId> {
+    r.find_by_tag("img")
+        .into_iter()
+        .filter(|n| r.attr(*n, "class").as_deref() != Some("fbar-mark"))
+        .collect()
 }

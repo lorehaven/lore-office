@@ -467,6 +467,9 @@ impl Cloud {
     pub fn restore_opened(&self) {
         #[cfg(target_arch = "wasm32")]
         {
+            if !self.integrated() {
+                return;
+            }
             let Some(key) = self.kept_key() else { return };
             let Some(text) = quench_ui_web::browser::storage_get(&key) else {
                 return;
@@ -641,6 +644,13 @@ impl Cloud {
     #[must_use]
     pub fn enabled(&self) -> bool {
         !self.context.api.is_empty()
+    }
+
+    /// Whether the page is part of forge: it has a cloud and knows where gatehouse is. Only then is anything about accounts
+    /// or the cloud offered (the dashboard and account menu, the Cloud button and menu items, Ctrl+S to the cloud).
+    #[must_use]
+    pub fn integrated(&self) -> bool {
+        self.enabled() && !self.context.gatehouse.is_empty()
     }
 
     fn url(&self, path: &str) -> String {
@@ -1276,10 +1286,10 @@ pub fn with_menu(mut items: Vec<MenuItem>) -> Vec<MenuItem> {
     items
 }
 
-/// What the File menu gets: nothing when the page has no cloud.
+/// What the File menu gets: nothing when the page has no cloud (see [`Cloud::integrated`]).
 #[must_use]
 pub fn menu_items() -> Vec<MenuItem> {
-    let Some(cloud) = current() else {
+    let Some(cloud) = current().filter(Cloud::integrated) else {
         return Vec::new();
     };
     let (open, save, copy) = (cloud.clone(), cloud.clone(), cloud.clone());
@@ -1290,9 +1300,6 @@ pub fn menu_items() -> Vec<MenuItem> {
         MenuItem::Separator,
         MenuItem::action("Cloud\u{2026}", "", move || open.open_panel()),
     ];
-    if !cloud.enabled() {
-        return items;
-    }
     if signed_in {
         let hint = if saves_to_cloud() { "Ctrl+S" } else { "" };
         items.push(MenuItem::action("Save to the cloud", hint, move || {
@@ -1318,7 +1325,7 @@ pub fn menu_items() -> Vec<MenuItem> {
 #[must_use]
 pub fn saves_to_cloud() -> bool {
     current().is_some_and(|c| {
-        c.enabled()
+        c.integrated()
             && (c.context.user.is_some() || c.context.share.as_ref().is_some_and(|s| s.edit))
     })
 }
@@ -1335,10 +1342,11 @@ pub fn save_shortcut() -> bool {
     true
 }
 
-/// A "Cloud" button for the top line (nothing when the page has no cloud): opens the person's documents.
+/// A "Cloud" button for the top bar (nothing when the page has no cloud, see [`Cloud::integrated`]): opens the person's
+/// documents.
 #[must_use]
 pub fn cloud_button() -> View {
-    let Some(cloud) = current() else {
+    let Some(cloud) = current().filter(Cloud::integrated) else {
         return View::Empty;
     };
     let title = cloud.clone();
@@ -1884,6 +1892,7 @@ pub fn setup() -> Cloud {
     #[cfg(not(target_arch = "wasm32"))]
     let cloud = Cloud::new(SERVER.with(|c| c.borrow().clone()), Rc::new(NoTransport));
     cloud.install();
+    frame(&cloud);
     // The suite's home is where the API's path starts: `/lore-office/api` is served by the page at `/lore-office/`.
     office_ui::set_home(
         cloud
@@ -1939,83 +1948,87 @@ pub mod web {
     }
 }
 
-/// `body` under the bar every forge app has when someone is signed in.
-///
-/// The bar has the services dashboard, the suite's home, the name and the account menu (profile at gatehouse, sign out).
-/// With no one signed in (or no gatehouse) it is `body` as it was.
-#[must_use]
-pub fn with_bar(cloud: &Cloud, body: View) -> View {
-    let c = &cloud.context;
-    if c.user.is_none() || c.gatehouse.is_empty() {
-        return body;
+/// Give the top bar what a page that is part of forge has: the services dashboard, and the account menu (edit profile at
+/// gatehouse, sign out) for someone signed in. A page without forge has neither.
+pub fn frame(cloud: &Cloud) {
+    if !cloud.integrated() {
+        office_ui::set_frame(None, None);
+        return;
     }
-    let (gatehouse, home) = (c.gatehouse.clone(), cloud.home());
-    let ico = |name: &str| span().class(format!("fbar-ico fbar-ico-{name}"));
-    let bar = element("header")
-        .class("fbar")
-        .attr("role", "banner")
+    let gatehouse = cloud.context.gatehouse.clone();
+    let lead: office_ui::Slot = Rc::new(move || dashboard(&gatehouse));
+    let end = cloud.context.user.clone().map(|user| {
+        let (gatehouse, home) = (cloud.context.gatehouse.clone(), cloud.home());
+        Rc::new(move || account_menu(&user, &gatehouse, &home)) as office_ui::Slot
+    });
+    office_ui::set_frame(Some(lead), end);
+}
+
+fn bar_icon(name: &str) -> Element {
+    span().class(format!("fbar-ico fbar-ico-{name}"))
+}
+
+fn dashboard(gatehouse: &str) -> View {
+    a().attr("id", "dashboard")
+        .class("fbar-btn")
+        .attr("href", format!("{gatehouse}/ui/home"))
+        .attr("title", t("Dashboard"))
+        .attr("aria-label", t("Dashboard"))
+        .child(bar_icon("grid"))
+        .into_view()
+}
+
+/// Where "Edit profile" goes: the account page by way of gatehouse's sign-in page.
+///
+/// The session a person gets by signing in to this service is only good for this service. Gatehouse's account page turns it
+/// down and sends the person to its sign-in page without saying where they were going, so they end on the dashboard. Asking
+/// the sign-in page for the account page instead makes it renew the session (no form while the realm session lives) and go
+/// on there.
+#[must_use]
+pub fn profile_link(gatehouse: &str) -> String {
+    // The page to go to is on gatehouse's own address: its path is enough, and always allowed.
+    let path = gatehouse.split_once("://").map_or(gatehouse, |(_, rest)| {
+        rest.find('/').map_or("", |at| &rest[at..])
+    });
+    let path = path.trim_end_matches('/');
+    format!(
+        "{gatehouse}/ui/login?redirect={}",
+        enc(&format!("{path}/ui/account"))
+    )
+}
+
+fn account_menu(user: &str, gatehouse: &str, home: &str) -> View {
+    element("details")
+        .class("fbar-menu")
+        .child(
+            element("summary")
+                .class("fbar-avatar")
+                .attr("title", user.to_string())
+                .attr("aria-label", t("Account"))
+                .child(bar_icon("user"))
+                // The picture gatehouse has of the person, over the icon once it has loaded (`office-theme`'s script).
+                .child(
+                    img()
+                        .attr("alt", "")
+                        .attr("src", format!("{gatehouse}/ui/account/avatar")),
+                ),
+        )
         .child(
             div()
-                .class("fbar-nav")
+                .class("fbar-drop")
                 .child(
-                    a().attr("id", "dashboard")
-                        .class("fbar-btn")
-                        .attr("href", format!("{gatehouse}/ui/home"))
-                        .attr("title", t("Dashboard"))
-                        .attr("aria-label", t("Dashboard"))
-                        .child(ico("grid")),
+                    a().attr("id", "profile")
+                        .class("fbar-item")
+                        .attr("href", profile_link(gatehouse))
+                        .child(bar_icon("user"))
+                        .child(span().text(t("Edit profile"))),
                 )
                 .child(
-                    a().attr("id", "home")
-                        .class("fbar-btn")
-                        .attr("href", home.clone())
-                        .attr("title", t("Home"))
-                        .attr("aria-label", t("Home"))
-                        .child(ico("house")),
+                    a().class("fbar-item")
+                        .attr("href", format!("{home}ui/logout"))
+                        .child(bar_icon("logout"))
+                        .child(span().text(t("Sign out"))),
                 ),
         )
-        .child(
-            a().attr("id", "title")
-                .class("fbar-brand")
-                .attr("href", home.clone())
-                .text("lore-office"),
-        )
-        .child(div().class("fbar-spacer"))
-        .child(
-            element("details")
-                .class("fbar-menu")
-                .child(
-                    element("summary")
-                        .class("fbar-avatar")
-                        .attr("title", c.user.clone().unwrap_or_default())
-                        .attr("aria-label", t("Account"))
-                        .child(ico("user")),
-                )
-                .child(
-                    div()
-                        .class("fbar-drop")
-                        .child(
-                            span()
-                                .class("fbar-who")
-                                .text(c.user.clone().unwrap_or_default()),
-                        )
-                        .child(
-                            a().class("fbar-item")
-                                .attr("href", format!("{gatehouse}/ui/account"))
-                                .child(ico("user"))
-                                .child(span().text(t("Edit profile"))),
-                        )
-                        .child(
-                            a().class("fbar-item")
-                                .attr("href", format!("{home}ui/logout"))
-                                .child(ico("logout"))
-                                .child(span().text(t("Sign out"))),
-                        ),
-                ),
-        );
-    div()
-        .class("office-frame")
-        .child(bar)
-        .child(div().class("office-frame-body").child(body))
         .into_view()
 }

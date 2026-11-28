@@ -107,7 +107,7 @@ fn setup(
     };
     let context = Context {
         open: None,
-        gatehouse: String::new(),
+        gatehouse: "https://h/gatehouse".into(),
         api: "/api".into(),
         user: user.map(str::to_string),
         denied: None,
@@ -142,7 +142,7 @@ fn setup(
 }
 
 #[quench_test::test]
-fn without_a_server_the_menu_only_offers_the_panel_to_pick_one() {
+fn without_forge_the_menu_offers_nothing_about_the_cloud() {
     let cloud = Cloud::new(
         Context::default(),
         Rc::new(Fake {
@@ -151,8 +151,7 @@ fn without_a_server_the_menu_only_offers_the_panel_to_pick_one() {
         }),
     );
     cloud.install();
-    // A separator and "Cloud…": no saving, since there is nowhere to save to.
-    assert_eq!(menu_items().len(), 2);
+    assert!(menu_items().is_empty());
     assert!(!cloud.enabled());
 }
 
@@ -297,7 +296,7 @@ fn a_page_opened_from_a_link_loads_it_and_saves_through_it_and_failures_are_said
     let down = Cloud::new(
         Context {
             open: None,
-            gatehouse: String::new(),
+            gatehouse: "https://h/gatehouse".into(),
             api: "/api".into(),
             ..Context::default()
         },
@@ -320,7 +319,7 @@ fn a_page_opened_from_a_link_loads_it_and_saves_through_it_and_failures_are_said
     let context = Context::from_json(
         &Context {
             open: None,
-            gatehouse: String::new(),
+            gatehouse: "https://h/gatehouse".into(),
             api: "/x/api".into(),
             user: Some("é".into()),
             denied: Some("d".into()),
@@ -407,7 +406,7 @@ fn sync(autosave: bool) -> Sync {
     };
     let context = Context {
         open: None,
-        gatehouse: String::new(),
+        gatehouse: "https://h/gatehouse".into(),
         api: "/api".into(),
         user: Some("alice".into()),
         denied: None,
@@ -841,7 +840,7 @@ fn following() -> Following {
     let imported: Rc<RefCell<usize>> = Rc::default();
     let context = Context {
         open: None,
-        gatehouse: String::new(),
+        gatehouse: "https://h/gatehouse".into(),
         api: "/api".into(),
         user: Some("alice".into()),
         denied: None,
@@ -1097,7 +1096,7 @@ fn others_in_the_document_are_shown_with_told_apart_names_and_a_change_to_the_do
 }
 
 #[quench_test::test]
-fn the_forge_bar_is_there_with_a_session_and_gatehouse_and_not_without() {
+fn the_top_bar_has_the_dashboard_account_and_cloud_only_in_forge() {
     let bar_of = |user: Option<&str>, gatehouse: &str| {
         let r = Rc::new(TestRenderer::new());
         let root = r.root();
@@ -1114,31 +1113,48 @@ fn the_forge_bar_is_there_with_a_session_and_gatehouse_and_not_without() {
         };
         let (_, scope) = create_root(|| {
             let cloud = Cloud::new(context, Rc::new(transport));
+            cloud.install();
+            office_cloud_ui::frame(&cloud);
+            let actions = div().child(office_cloud_ui::cloud_button());
             mount(
                 &r,
                 &root,
-                office_cloud_ui::with_bar(&cloud, div().attr("id", "body").into_view()),
+                office_ui::topbar("lore-docs", actions).into_view(),
             );
         });
-        (r, scope)
+        let found = (
+            r.find_by_attr("id", "dashboard").len(),
+            r.find_by_attr("aria-label", "Account").len(),
+            r.find_by_tag("button").len(),
+            office_cloud_ui::menu_items().len(),
+            office_cloud_ui::saves_to_cloud(),
+        );
+        drop(scope);
+        found
     };
-    let (on, _keep) = bar_of(Some("ada"), "https://h/gatehouse");
-    assert_eq!(on.find_by_attr("id", "dashboard").len(), 1);
+    let in_forge = bar_of(Some("ada"), "https://h/gatehouse");
+    assert_eq!((in_forge.0, in_forge.1, in_forge.2), (1, 1, 1));
+    assert!(in_forge.3 > 0 && in_forge.4);
+    // Signed out in forge: no account menu; the cloud is offered (it is where signing in is).
+    let signed_out = bar_of(None, "https://h/gatehouse");
+    assert_eq!((signed_out.0, signed_out.1, signed_out.2), (1, 0, 1));
+    // Without forge: nothing about accounts or the cloud, and Ctrl+S saves a file.
+    assert_eq!(bar_of(Some("local"), ""), (0, 0, 0, 0, false));
+}
+
+#[quench_test::test]
+fn edit_profile_goes_to_the_account_page_by_way_of_the_sign_in_page() {
     assert_eq!(
-        on.find_by_attr("id", "body").len(),
-        1,
-        "the app is still under it"
+        office_cloud_ui::profile_link("https://h/gatehouse"),
+        "https://h/gatehouse/ui/login?redirect=%2Fgatehouse%2Fui%2Faccount"
     );
-    assert!(
-        bar_of(None, "https://h/gatehouse")
-            .0
-            .find_by_attr("id", "dashboard")
-            .is_empty()
+    // At the root of its own host, and given as a path.
+    assert_eq!(
+        office_cloud_ui::profile_link("https://auth.example"),
+        "https://auth.example/ui/login?redirect=%2Fui%2Faccount"
     );
-    assert!(
-        bar_of(Some("ada"), "")
-            .0
-            .find_by_attr("id", "dashboard")
-            .is_empty()
+    assert_eq!(
+        office_cloud_ui::profile_link("/gatehouse"),
+        "/gatehouse/ui/login?redirect=%2Fgatehouse%2Fui%2Faccount"
     );
 }

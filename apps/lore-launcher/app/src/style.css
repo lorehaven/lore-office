@@ -1,7 +1,4 @@
 .launcher { min-height: 100%; display: flex; flex-direction: column; }
-.bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 20px; border-bottom: 1px solid var(--office-grid); background: var(--office-head-bg); }
-.brand { font-size: 15px; font-weight: 700; color: var(--office-accent); letter-spacing: 0.02em; }
-.bar-end { display: flex; align-items: center; }
 .home { box-sizing: border-box; width: min(900px, 100%); margin: 0 auto; padding: 56px 20px; }
 .home h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.2; }
 .lede { margin: 0 0 32px; color: var(--office-head-fg); font-size: 15px; }

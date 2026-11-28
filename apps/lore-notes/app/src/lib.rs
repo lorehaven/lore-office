@@ -50,7 +50,7 @@ pub fn app() -> View {
     if let Some(id) = cloud.context.open.clone() {
         cloud.open_doc(&id);
     }
-    office_cloud_ui::with_bar(&cloud, notes_view(&state))
+    notes_view(&state)
 }
 
 #[cfg(target_arch = "wasm32")]

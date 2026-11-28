@@ -1,0 +1,20 @@
+# The OAuth clients of the local gatehouse (see foreman.toml): the same ones the cluster has for these three, from
+# homecloud's gatehouse overlay. The secrets are named here and set in foreman.toml.
+
+[[client]]
+client_id = "warehouse"
+redirect_path = "/ui/auth/callback"
+allowed_scopes = ["warehouse"]
+secret_env = "CLIENT_SECRET_WAREHOUSE"
+
+[[client]]
+client_id = "lore-office"
+redirect_path = "/ui/auth/callback"
+allowed_scopes = ["lore-office"]
+secret_env = "CLIENT_SECRET_LORE_OFFICE"
+
+# lore-office's machine identity toward warehouse: it makes and fills each person's storage.
+[[client]]
+client_id = "lore-office-warehouse"
+allowed_scopes = ["warehouse"]
+secret_env = "CLIENT_SECRET_LORE_OFFICE_WAREHOUSE"

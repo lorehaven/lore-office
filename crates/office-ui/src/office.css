@@ -18,25 +18,17 @@ html, body, #app { height: 100%; margin: 0; background: var(--office-bg); color:
 
 /* The ribbon: the document's name above, then labelled sections of buttons. */
 .ribbon { position: relative; z-index: 30; grid-column: 1 / -1; display: flex; flex-direction: column; background: var(--office-head-bg); border-bottom: 1px solid var(--office-grid); }
-.titlebar { display: flex; align-items: baseline; gap: 12px; padding: 4px 12px 0; font-size: 12px; }
-.titlebar .app-name { font-weight: 700; color: var(--office-accent); letter-spacing: 0.02em; }
-.titlebar .file-name { font-weight: 600; }
-.titlebar .status { margin-left: auto; color: var(--office-head-fg); }
 .ribbon-tabs { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 2px; min-height: 36px; padding: 0 8px; border-bottom: 1px solid var(--office-grid); white-space: nowrap; }
 .ribbon-tabs > * { flex: none; display: flex; align-items: center; }
-.ribbon-tabs .app-name { margin-right: 10px; font-size: 14px; font-weight: 700; color: var(--office-accent); letter-spacing: 0.02em; }
 .ribbon-tabs .file-name { margin-left: auto; padding-left: 12px; font-size: 13px; font-weight: 600; }
 .ribbon-tabs .status { margin-left: 12px; font-size: 13px; color: var(--office-head-fg); }
 .icon { display: inline-block; width: 1.1em; height: 1.1em; background: currentColor; -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
-.icon-home { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11.5 12 4l9 7.5'/%3E%3Cpath d='M5.5 10v10h13V10'/%3E%3Cpath d='M10 20v-5.5h4V20'/%3E%3C/svg%3E"); }
 .icon-cloud { --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.9 9.6 4.2 4.2 0 0 1 17.5 18Z'/%3E%3C/svg%3E"); }
 .cloud-wrap { display: inline-flex; align-items: center; gap: 6px; }
 .who-row { display: inline-flex; gap: 3px; align-items: center; }
 .who-chip { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 600; }
 .who-more { font-size: 11px; color: var(--office-head-fg); }
 .cloud-button { display: inline-flex; align-items: center; gap: 6px; }
-.home-link { display: flex; align-items: center; margin-right: 6px; padding: 0 8px; font-size: 18px; line-height: 1; color: var(--office-head-fg); text-decoration: none; border-radius: var(--office-radius); }
-.home-link:hover { color: var(--office-accent); background: color-mix(in srgb, var(--office-fg) 8%, transparent); }
 .ribbon-lead { display: flex; }
 .ribbon-lead .tool { min-height: 0; height: 100%; padding: 0 14px; font-size: 14px; font-weight: 600; color: var(--office-accent); border-radius: 0; border: 0; border-bottom: 2px solid transparent; }
 .ribbon-tab { padding: 0 14px; font: inherit; font-size: 14px; color: var(--office-head-fg); background: transparent; border: 0; border-bottom: 2px solid transparent; cursor: pointer; }
@@ -86,9 +78,6 @@ html, body, #app { height: 100%; margin: 0; background: var(--office-bg); color:
 .menu-sub { position: relative; display: flex; flex-direction: column; }
 .menu-list.menu-nested { top: -5px; left: calc(100% + 2px); min-width: 240px; }
 
-/* Language and theme at the end of the top line. */
-.ribbon-extras { display: flex; align-items: center; gap: 4px; margin-left: 8px; }
-.ribbon-extras > * { display: flex; align-items: center; }
 
 /* The cloud: a banner for what was said, and a panel of the person's documents. */
 .cloud-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 60; display: flex; gap: 10px; align-items: center; padding: 8px 12px; max-width: min(640px, 92vw); color: var(--office-fg); background: var(--office-head-bg); border: 1px solid var(--office-grid); border-radius: var(--office-radius-lg); box-shadow: var(--office-shadow); font-size: 13px; }
@@ -216,23 +205,33 @@ a.tool.primary { align-self: flex-start; text-decoration: none; }
 .cloud-side .cloud-server { flex-wrap: wrap; }
 .cloud-side .cloud-server input { min-width: 0; width: 100%; flex: 1 1 100%; }
 
-/* The bar of forge's apps, above an app when someone is signed in (see office_cloud_ui::with_bar). */
-.office-frame { display: flex; flex-direction: column; height: 100%; }
-.office-frame-body { flex: 1 1 auto; min-height: 0; position: relative; }
-.office-frame-body > * { height: 100%; }
-.fbar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; box-sizing: border-box; background: var(--office-bg); color: var(--office-fg); border-bottom: 1px solid var(--office-grid); position: relative; z-index: 60; }
-.fbar-nav { display: flex; align-items: center; gap: 2px; }
-.fbar-btn, .fbar-avatar { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--office-radius); color: var(--office-head-fg); text-decoration: none; cursor: pointer; list-style: none; }
-.fbar-btn:hover, .fbar-avatar:hover { background: color-mix(in srgb, var(--office-fg) 8%, transparent); color: var(--office-fg); }
-.fbar-avatar::-webkit-details-marker { display: none; }
-.fbar-avatar { border: 1px solid var(--office-grid); border-radius: 50%; }
-.fbar-brand { font-size: 16px; font-weight: 600; color: var(--office-fg); text-decoration: none; }
+/* The top bar, as the forge services draw theirs (forge-shell): same height, spacing, buttons, menus. In pixels: forge's
+   rem is 16px, this suite's root is 14px. */
+.fbar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 24px; box-sizing: border-box; background: var(--office-bar-bg); color: var(--office-fg); border-bottom: 1px solid var(--office-grid); position: relative; z-index: 60; white-space: nowrap; }
+.fbar-nav { display: flex; align-items: center; gap: 4px; }
+.fbar-btn, .fbar-tools .theme-menu > summary, .fbar-tools .paper-toggle { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--office-head-fg); font-size: 16.8px; text-decoration: none; cursor: pointer; }
+.fbar-btn:hover, .fbar-tools .theme-menu > summary:hover, .fbar-tools .paper-toggle:hover { background: color-mix(in srgb, var(--office-fg) 8%, transparent); color: var(--office-fg); }
+.fbar-brand { display: inline-flex; align-items: center; gap: 10px; min-width: 0; font-size: 17px; font-weight: 600; color: var(--office-fg); text-decoration: none; }
+.fbar-mark { width: 32px; height: 32px; border-radius: 8px; display: block; }
+.fbar-name { overflow: hidden; text-overflow: ellipsis; }
 .fbar-spacer { flex: 1 1 auto; }
-.fbar-menu { position: relative; }
-.fbar-drop { position: absolute; right: 0; top: 38px; min-width: 200px; display: flex; flex-direction: column; padding: 4px; background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: var(--office-radius); box-shadow: var(--office-shadow); }
-.fbar-who { padding: 6px 10px; font-size: 12px; color: var(--office-head-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fbar-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 14px; color: var(--office-fg); text-decoration: none; border-radius: var(--office-radius); }
+.fbar-actions, .fbar-tools { display: flex; align-items: center; gap: 8px; }
+.fbar-tools > * { display: flex; align-items: center; }
+.fbar-tools .language-picker { min-height: 36px; padding: 4px 10px; border: 1px solid var(--office-scroll-thumb); border-radius: 8px; background: var(--office-bg); color: var(--office-fg); font-size: 13px; font-weight: 500; }
+.fbar-tools .cloud-button { min-height: 40px; padding: 0 12px; border-radius: 8px; color: var(--office-head-fg); }
+.fbar-tools .cloud-button:hover { color: var(--office-fg); }
+.fbar-menu { position: relative; display: flex; }
+.fbar-avatar { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; box-sizing: border-box; overflow: hidden; list-style: none; cursor: pointer; border: 1px solid var(--office-grid); border-radius: 50%; background: color-mix(in srgb, var(--office-accent) 16%, transparent); color: var(--office-accent); }
+.fbar-avatar::-webkit-details-marker { display: none; }
+.fbar-avatar img { display: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.fbar-avatar.has-avatar img { display: block; }
+.fbar-avatar.has-avatar .fbar-ico { display: none; }
+.fbar-drop { position: absolute; right: 0; top: calc(100% + 0.5rem); z-index: 60; min-width: 13rem; display: flex; flex-direction: column; padding: 0.25rem; background: var(--office-bg); border: 1px solid var(--office-grid); border-radius: 10px; box-shadow: var(--office-shadow); }
+.fbar-item { display: flex; align-items: center; gap: 0.75rem; min-height: 2.5rem; padding: 0.5rem 0.75rem; font-size: 0.9375rem; font-weight: 500; color: var(--office-fg); text-decoration: none; border-radius: 6px; }
 .fbar-item:hover { background: color-mix(in srgb, var(--office-fg) 8%, transparent); }
+.fbar-item .fbar-ico { color: var(--office-head-fg); }
+@media (max-width: 639.98px) { .fbar { height: 3.5rem; padding: 0 0.75rem; gap: 0.5rem; } .fbar-nav { display: none; } .fbar-actions, .fbar-tools { gap: 0.25rem; } .fbar-tools .cloud-button > span:not(.icon):not(.sync-dot) { display: none; } }
+@media (max-width: 479.98px) { .fbar-name { display: none; } }
 .fbar-ico { display: inline-block; width: 18px; height: 18px; background-color: currentColor; -webkit-mask: var(--ico) center / contain no-repeat; mask: var(--ico) center / contain no-repeat; }
 .fbar-ico-grid { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='7' height='7'/%3E%3Crect x='14' y='3' width='7' height='7'/%3E%3Crect x='14' y='14' width='7' height='7'/%3E%3Crect x='3' y='14' width='7' height='7'/%3E%3C/svg%3E"); }
 .fbar-ico-house { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpath d='M9 22V12h6v10'/%3E%3C/svg%3E"); }

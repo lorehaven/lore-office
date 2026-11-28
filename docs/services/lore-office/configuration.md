@@ -40,7 +40,7 @@ With `CLOUD_STORAGE=warehouse` the service stops at start when `WAREHOUSE_URL` o
 | `SERVICE_AUTH_ENABLED` | unset | `true` turns gatehouse sign-in on; anything else is the local person |
 | `SERVICE_NAME` | | the audience a token must carry (`lore-office`) |
 | `SERVICE_REALM` | | set by the overlay (`https://ennor.ddns.net/token`); not read by the service's own code |
-| `GATEHOUSE_URL` | | gatehouse, for sign-in, keys and the warehouse token |
+| `GATEHOUSE_URL` | | gatehouse, for sign-in, keys and the warehouse token. Without it pages offer no cloud, account menu or dashboard |
 | `GATEHOUSE_CLIENT_ID` | | the login client (`lore-office`) |
 | `GATEHOUSE_CLIENT_SECRET` | | its secret |
 | `GATEHOUSE_TLS_VERIFY` | `true` | read by `quench-auth` |

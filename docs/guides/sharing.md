@@ -8,6 +8,8 @@ A document in the cloud can be shared by a link that anyone holding it can open,
 
 ## In the apps
 
+The cloud is there only when lore-office is part of forge (see [Theme and language](theme-and-language.md#the-top-bar)).
+
 File ▸ *Cloud…* opens the documents panel, 70% of the window wide and high:
 
 * **Folders at the side**: *My documents*, the folders under it (nested), and *Shared with me*. Under them, who is signed in, Sign out, and the Server field with *Connect*.

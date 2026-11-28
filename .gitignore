@@ -5,3 +5,6 @@
 # Working notes and plans stay local.
 /plans
 .anvil/secret.toml
+
+# Images to use instead of the released ones in the local estate (foreman.toml).
+/local/.env

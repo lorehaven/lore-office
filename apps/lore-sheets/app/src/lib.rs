@@ -51,7 +51,7 @@ pub fn app() -> View {
     if let Some(id) = cloud.context.open.clone() {
         cloud.open_doc(&id);
     }
-    office_cloud_ui::with_bar(&cloud, sheet_view(&state))
+    sheet_view(&state)
 }
 
 /// Days since 1899-12-30 for a moment given as milliseconds since 1970 UTC and the zone's offset in seconds.
